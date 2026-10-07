@@ -165,8 +165,12 @@ function btn(box, label, fn, disabled) {
   if (!disabled) b.onclick = fn; box.appendChild(b); return b;
 }
 
+export const hooks = {};
+export function setHooks(h) { Object.assign(hooks, h); }
+export { openFreeRoamMenu };
 export function openMainMenu() {
   S.gen = (S.gen || 0) + 1;
+  if (hooks.mainMenu) { if (S.menu) S.menu.style.display = 'none'; S.active = false; setPaused(true); hooks.mainMenu(); return; }
   const box = menuBox('TRATTA', PROTAGONIST.bio);
   btn(box, '▶ Storia', openChapterSelect);
   btn(box, '🌍 Guida libera', openFreeRoamMenu);
@@ -221,6 +225,10 @@ export function startFreeRoam(carId, env) {
 
 export function startChapter(i) {
   S.gen = (S.gen || 0) + 1; if (S.menu) S.menu.style.display = 'none';
+  if (hooks.beforeChapter) { const g = S.gen; S.active = false; setPaused(true); return Promise.resolve(hooks.beforeChapter(i)).catch(() => {}).then(() => { if (S.gen === g) startChapterNow(i); }); }
+  return startChapterNow(i);
+}
+function startChapterNow(i) {
   S.mode = 'story'; S.chapter = i; S.mission = -1;
   const c = CHAPTERS[i];
   applyEnv(c.env);
@@ -253,9 +261,10 @@ function chapterDone() {
   emit('chapterComplete', { chapter: i, unlockedCars: newCars.map(c => c.id) });
   S.hud.style.display = 'none';
   const extra = newCars.length ? '<br><br>🔓 Nuova auto: <b>' + newCars.map(c => c.name).join(', ') + '</b>' : '';
-  showOverlay(CHAPTERS[i].title, CHAPTERS[i].outro + extra, last ? 'Titoli di coda' : 'Prossimo capitolo', () => {
+  const go = () => showOverlay(CHAPTERS[i].title, CHAPTERS[i].outro + extra, last ? 'Titoli di coda' : 'Prossimo capitolo', () => {
     if (last) { emit('storyComplete', {}); openMainMenu(); } else startChapter(i + 1);
   });
+  if (hooks.afterChapter) { setPaused(true); Promise.resolve(hooks.afterChapter(i)).catch(() => {}).then(go); } else go();
 }
 
 function finish(ok, reason) {

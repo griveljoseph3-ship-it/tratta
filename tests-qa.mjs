@@ -11,6 +11,7 @@ async function page(opts = { viewport: { width: 960, height: 540 } }) {
   await p.addInitScript(() => localStorage.setItem('tratta-q', '0'));
   await p.goto(URL, { waitUntil: 'networkidle' }); await p.waitForFunction(() => window.tratta?.debug?.Story, null, { timeout: 30000 });
   await p.evaluate(() => { window.__ev = []; for (const n of ['missionStart','missionComplete','missionFailed','chapterComplete','storyComplete','freeRoamStart','busted','playerDestroyed','pause']) tratta.on(n, d => __ev.push({ n, d: { chapter: d?.chapter, mission: d?.mission, type: d?.type, target: d?.target, reason: d?.reason } })); });
+  await p.evaluate(async () => { tratta.debug.skipCinema = true; await tratta.debug.closeCinema?.(); });
   return p;
 }
 const sim = (p, sec) => p.evaluate(s => new Promise(r => { tratta.debug.substeps = 20; tratta.debug.autopilot = window.__ap !== false; if (window.__god !== false) tratta.debug.god = true; const t0 = tratta.state.time; const iv = setInterval(() => { if (tratta.state.time - t0 >= s || !tratta.state.running) { clearInterval(iv); tratta.debug.substeps = 1; r(); } }, 50); setTimeout(() => { clearInterval(iv); tratta.debug.substeps = 1; r(); }, 60000); }), sec);
@@ -21,8 +22,9 @@ const ev = p => p.evaluate(() => __ev.splice(0));
 let p = await page();
 // 1 menu
 const menuBtns = await p.$$eval('button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()));
-ok('Menu principale carica', menuBtns.some(t => /Storia/.test(t)) && menuBtns.some(t => /Guida libera/.test(t)), menuBtns.join('|').slice(0, 120));
+ok('Pagina carica, moduli pronti', await p.evaluate(() => !!(tratta.debug.Story && tratta.debug.Police && tratta.debug.Diff && tratta.debug.Cinema)), '');
 await p.screenshot({ path: '/workspace/qa-menu.png' });
+
 // 2 capitoli: tutte le missioni
 const chN = await p.evaluate(() => tratta.debug.Story.CHAPTERS.length);
 for (let i = 0; i < chN; i++) {
@@ -35,7 +37,7 @@ for (let i = 0; i < chN; i++) {
     if (M.target) await p.evaluate(t => tratta.debug.ff(t + 300), M.target);
     if (M.type === 'escape') await p.evaluate(() => { tratta.debug.Police.setHeat(0); tratta.debug.Story.notify('policeHeat', { heat: 0 }); });
     let done = false;
-    for (let k = 0; k < 12 && !done; k++) {
+    for (let k = 0; k < 25 && !done; k++) {
       await p.evaluate(() => { tratta.player.health = 100; if (tratta.debug.Story.getState().mission >= 0 && tratta.debug.Story.getState().active) { const M = tratta.debug.Story.CHAPTERS[tratta.debug.Story.getState().chapter].missions[tratta.debug.Story.getState().mission]; if (M.type === 'escape') { tratta.debug.Police.setHeat(0); tratta.debug.Story.notify('policeHeat', { heat: 0 }); } } });
       await sim(p, M.type === 'survive' ? 12 : 4);
       const e = await p.evaluate(() => __ev.map(x => x.n)); done = e.includes('missionComplete') || e.includes('missionFailed');
@@ -94,7 +96,7 @@ await p.evaluate(() => document.getElementById('menuClose').click());
 // 7 garage
 await p.evaluate(() => tratta.debug.Story.openGarage()); await p.waitForTimeout(300); await p.screenshot({ path: '/workspace/qa-garage.png' });
 const gb = await p.$$eval('button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()));
-ok('Garage mostra auto', gb.filter(t => /🔒|Berlina|Furgone|Coupé|Rally|Supercar/.test(t)).length >= 8, gb.length + ' bottoni');
+const names = await p.evaluate(() => tratta.debug.Story.CARS.map(c => c.name)); const shown = names.filter(n => gb.some(t => t.includes(n))); ok('Garage mostra tutte le auto', shown.length === names.length, shown.length + '/' + names.length);
 await p.evaluate(() => [...document.querySelectorAll('button')].find(b => b.offsetParent && /Indietro/.test(b.textContent))?.click()); await p.waitForTimeout(200);
 // 8 HUD sovrapposizioni
 await p.evaluate(() => tratta.debug.Story.startFreeRoam('berlina', 'city')); await p.waitForTimeout(300); await p.evaluate(() => tratta.debug.Police.setHeat(3)); await sim(p, 2);
@@ -108,6 +110,26 @@ await p.evaluate(() => tratta.debug.Story.openChapterSelect()); await p.waitForT
 await p.evaluate(() => [...document.querySelectorAll('button')].find(b => b.offsetParent && /Azzera/.test(b.textContent))?.click()); await p.waitForTimeout(300);
 ok('Azzera progressi', (await p.evaluate(() => JSON.parse(localStorage.getItem('tratta_story_v2') || '{}').unlocked)) === 1);
 await p.close();
+{ const p2 = await (async () => { const c = await b.newContext({ viewport: { width: 960, height: 540 } }); const pg = await c.newPage(); pg.on('pageerror', e => errors.push('pageerror: ' + e.message)); pg.on('console', m => { if (m.type() === 'error') errors.push('error: ' + m.text().slice(0, 200)); }); await pg.addInitScript(() => localStorage.setItem('tratta-q', '0')); await pg.goto(URL, { waitUntil: 'networkidle' }); await pg.waitForFunction(() => window.tratta?.debug?.Story); return pg; })();
+  await p2.waitForTimeout(1500);
+  const cm = await p2.$$eval('.tc-btn', bs => bs.map(b => b.textContent));
+  ok('Menu cinematografico (4 voci)', cm.length === 4, cm.join('|'));
+  await p2.screenshot({ path: '/workspace/qa-cinema-menu.png' });
+  await p2.click('.tc-btn >> nth=0'); await p2.waitForTimeout(1500);
+  const playing = await p2.evaluate(() => tratta.state.cinema); ok('Storia -> cutscene intro', playing);
+  await p2.screenshot({ path: '/workspace/qa-cutscene.png' });
+  const salta = () => p2.evaluate(() => { const b = [...document.querySelectorAll('button')].find(b => b.offsetParent && /Salta/.test(b.textContent)); b?.click(); return !!b; });
+  ok('Pulsante Salta', await salta());
+  await p2.waitForTimeout(1500);
+  const chSel = await p2.$$eval('button', bs => bs.filter(b => b.offsetParent).some(b => /Cap\. 1/.test(b.textContent)));
+  ok('Dopo intro: scelta capitoli', chSel && !(await p2.evaluate(() => tratta.state.cinema)));
+  const ids = await p2.evaluate(() => tratta.debug.Cinema.listCutscenes());
+  for (const id of ids) { const r = await p2.evaluate(id => { const pr = tratta.debug.Cinema.playCutscene(id, tratta); return new Promise(res => setTimeout(() => { const b = [...document.querySelectorAll('button')].find(b => b.offsetParent && /Salta/.test(b.textContent)); b?.click(); pr.then(() => res('ok')); setTimeout(() => res('timeout'), 4000); }, 600)); }, id); ok('Cutscene ' + id, r === 'ok', r); }
+  // capitolo con cutscene vera: startChapter -> chapter1 -> Salta -> overlay Guida
+  await p2.evaluate(() => { tratta.debug.Story.startChapter(0); }); await p2.waitForTimeout(800); const c1 = await p2.evaluate(() => tratta.state.cinema); await salta(); await p2.waitForTimeout(1200);
+  const g = await p2.$$eval('button', bs => bs.filter(b => b.offsetParent).some(b => /Guida/.test(b.textContent)));
+  ok('Capitolo: cutscene poi intro', c1 && g);
+  await p2.context().close(); }
 // 10 iPad touch
 const ip = await page({ ...devices['iPad (gen 7) landscape'] });
 await ip.evaluate(() => tratta.debug.Story.startFreeRoam('berlina', 'city')); await ip.waitForTimeout(300);

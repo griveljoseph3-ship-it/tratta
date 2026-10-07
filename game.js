@@ -212,7 +212,7 @@ function setEnvironment(env) {
     hemi.visible = sun.visible = false; // luci e nebbia dal modulo ambienti (un sole + emisfero)
   } else { hemi.visible = sun.visible = true; scene.fog = scene.fog || new THREE.FogExp2(L.fog, L.density); }
 }
-let Env = null, Cars = null;
+let Env = null, Cars = null, Cinema = null;
 const envCtx = Object.create(null);
 let envMap = null; const skyScene = new THREE.Scene();
 
@@ -328,6 +328,7 @@ on('heatChange', d => { ui.setHeat(d.to); Story?.notify('policeHeat', { heat: d.
 on('busted', () => Story?.notify('busted'));
 on('escaped', () => { ui.flash('Seminati!'); Story?.notify('policeHeat', { heat: 0 }); });
 on('pause', d => ctx.state.paused = !!d.paused);
+on('cinema', d => ctx.state.cinema = !!d.active);
 on('environment', d => setEnvironment(d.env));
 on('carSelected', d => setCar(d.car));
 on('freeRoamPolice', d => Police?.setHeat(d.policeLevel));
@@ -449,7 +450,7 @@ function updateHUD() {
 const clock = new THREE.Clock(); let fpsAcc = 0, fpsN = 0;
 function step(dt) {
   try { Story?.update(dt, modCtx); } catch (e) { console.error(e); }
-  if (ctx.state.running && !ctx.state.paused) {
+  if (ctx.state.running && !ctx.state.paused && !ctx.state.cinema) {
     ctx.state.time += dt; updatePlayer(dt);
     if (ctx.debug.ffLeft > 0) { const j = Math.min(150, ctx.debug.ffLeft); player.z -= j; player.distance += j; ctx.debug.ffLeft -= j; }
     for (const m of [ctx.debug.noTraffic ? null : Diff, ctx.debug.noPolice ? null : Police]) { try { m?.update(dt, modCtx); } catch (e) { console.error(e); } }
@@ -463,7 +464,7 @@ function loop() {
   for (let i = 0; i < n; i++) step(n > 1 ? 1 / 20 : dt);
   if (ctx.state.running) updateHUD();
   if (player.mesh) { updateCamera(dt); updateScenery(player.z, dt); }
-  bend(); composer.render(dt); unbend();
+  if (!(ctx.state.cinema && Cinema?.isMenuOpen?.())) { bend(); composer.render(dt); unbend(); }
   fpsAcc += dt; fpsN++; if (fpsAcc > 2) { ctx.state.fps = fpsN / fpsAcc; fpsAcc = fpsN = 0; }
 }
 
@@ -474,7 +475,7 @@ $('ovRetry').onclick = () => ui.hide('over'); $('ovMenu').onclick = () => { ui.h
 const gear = document.createElement('button'); gear.textContent = '⚙'; gear.title = 'Grafica';
 gear.style.cssText = 'position:fixed;right:14px;bottom:90px;z-index:50;width:44px;height:44px;border-radius:50%;border:1px solid #fff3;background:#0009;color:#fff;font-size:20px;pointer-events:auto';
 gear.onclick = () => $('menu').classList.toggle('hidden'); document.body.appendChild(gear);
-$('menuClose').onclick = () => ui.hide('menu');
+$('menuClose').onclick = () => { ui.hide('menu'); if (ctx.state.settingsFromMenu) { ctx.state.settingsFromMenu = false; ctx.openMainMenu?.(); } };
 
 async function loadModules() {
   const imp = async n => { try { return await import(`./${n}.js`); } catch (e) { console.error('modulo', n, e); } };
@@ -482,8 +483,19 @@ async function loadModules() {
   Object.assign(envCtx, { THREE, scene, camera, player, keepBackground: true, groundMaterial: groundMat, road: Object.assign(Object.create(road), { halfWidth: TOTAL_W / 2 + CURB + 0.6 }) });
   Diff = await imp('difficulty'); Police = await imp('police'); Story = await imp('story');
   if (Story?.CARS) { CARS = Story.CARS; carDef = Story.getState?.().car || CARS[0]; }
+  Cinema = await imp('cinema');
+  if (Story && Cinema) {
+    try { Cinema.init({ ui: document.body, onEvent: emit, quality }); } catch (e) { console.error(e); Cinema = null; }
+  }
+  if (Story && Cinema) {
+    const cut = id => ctx.debug.skipCinema ? null : Cinema.playCutscene(id, ctx);
+    ctx.openMainMenu = () => { ctx.state.running = false; Cinema.openMenu({
+      onStoria: () => { if (!localStorage.getItem('tratta-intro') && !ctx.debug.skipCinema) { localStorage.setItem('tratta-intro', '1'); Promise.resolve(Cinema.playCutscene('intro', ctx)).finally(() => Story.openChapterSelect()); } else Story.openChapterSelect(); },
+      onFree: () => Story.openFreeRoamMenu(), onGarage: () => Story.openGarage(), onSettings: () => { ctx.state.settingsFromMenu = true; ui.show('menu'); } }); };
+    Story.setHooks({ mainMenu: ctx.openMainMenu, beforeChapter: i => cut('chapter' + (i + 1)), afterChapter: i => cut('twist' + (i + 1)) });
+  }
   Diff?.init(modCtx); Police?.init(modCtx); Story?.init(modCtx);
-  Object.assign(ctx.debug, { Story, Police, Diff, modCtx, laneSpace, ff: m => { ctx.debug.ffLeft = m; } });
+  Object.assign(ctx.debug, { Story, Police, Diff, Cinema, closeCinema: () => Cinema?.isMenuOpen?.() ? Cinema.closeMenu() : null, modCtx, laneSpace, ff: m => { ctx.debug.ffLeft = m; } });
 }
 
 markQ(); setupPost();
