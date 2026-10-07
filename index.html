@@ -6,7 +6,7 @@
 <title>Tratta</title>
 <link rel="icon" href="favicon.svg" type="image/svg+xml" />
 <style>
-html,body{margin:0;height:100%;background:#0b0e14;overflow:hidden;color:#eef3fa;font-family:"Segoe UI",system-ui,sans-serif}
+html,body{touch-action:none;overscroll-behavior:none;-webkit-user-select:none;margin:0;height:100%;background:#0b0e14;overflow:hidden;color:#eef3fa;font-family:"Segoe UI",system-ui,sans-serif}
 canvas{display:block}
 #ui{position:fixed;inset:0;pointer-events:none}
 .panelWrap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(5,7,12,.72);pointer-events:auto}
@@ -26,7 +26,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 #obj{position:absolute;left:18px;top:14px;max-width:420px;background:rgba(6,8,14,.55);padding:8px 12px;border-radius:10px;font-size:14px}
 #heat{position:absolute;right:18px;top:14px;font-size:26px;letter-spacing:3px;text-shadow:0 2px 6px #000}
 #msg{position:absolute;top:30%;width:100%;text-align:center;font-size:30px;font-weight:800;text-shadow:0 3px 10px #000;opacity:0;transition:opacity .3s}
-#touch{position:absolute;left:0;right:0;bottom:12px;display:flex;justify-content:space-between;padding:0 12px}
+#touch{touch-action:none;user-select:none;-webkit-user-select:none;position:absolute;left:0;right:0;bottom:12px;display:flex;justify-content:space-between;padding:0 12px}
 #touch button{pointer-events:auto;width:84px;height:64px;border-radius:14px;border:1px solid rgba(255,255,255,.16);background:rgba(8,12,18,.6);font-size:18px;font-weight:700}
 </style>
 <script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
@@ -34,11 +34,10 @@ button{font:inherit;color:inherit;cursor:pointer}
 <body>
 <div id="ui">
   <div id="obj" class="hidden"></div><div id="heat" class="hidden"></div><div id="msg"></div>
-  <div id="hud"><div id="speed">0<span>km/h</span></div><div id="meta"></div><div id="bar" class="hidden"><div id="hp"></div></div></div>
-  <div id="touch"><div><button id="tL">◀</button> <button id="tR">▶</button></div><div><button id="tB">FRENO</button> <button id="tG">GAS</button></div></div>
-  <div id="menu" class="panelWrap hidden" style="z-index:40"><div class="panel">
-    <h1>Garage</h1>
-    <h2>Mezzo</h2><div class="row"><button class="choice active" data-car="0"><b>Berlina GT</b><span>Stabile, regge gli urti.</span></button><button class="choice" data-car="1"><b>Coupé R</b><span>Più veloce, più fragile.</span></button></div>
+  <div id="hud"><div id="speed">0<span>km/h</span></div><div id="meta"></div><div id="bar"><div id="rpm" style="height:100%;width:0;background:#ffb23e"></div></div></div>
+  <div id="touch"><div><button id="tL">◀</button> <button id="tR">▶</button></div><div><button id="tN">NITRO</button> <button id="tB">FRENO</button> <button id="tG">GAS</button></div></div>
+  <div id="menu" class="panelWrap hidden" style="z-index:10000"><div class="panel">
+    <h1>Impostazioni</h1>
     <h2>Grafica</h2><div class="row"><button class="choice" data-q="2">Alta</button><button class="choice" data-q="1">Media</button><button class="choice" data-q="0">Bassa</button></div>
     <button class="go" id="menuClose">Chiudi</button><p style="font-size:13px;opacity:.6">Frecce/A-D sterzo · W/↑ gas · S/↓ freno · Spazio nitro</p>
   </div></div>

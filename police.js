@@ -65,19 +65,20 @@ function makeMats() {
 
 function makeCar() {
   const g = new T.Group();
+  const shared = globalThis.tratta?.makeCar?.('police');
+  if (shared) g.add(shared); else {
   const body = new T.Mesh(new T.BoxGeometry(1.9, 0.6, 4.2), mats.body); body.position.y = 0.45; g.add(body);
   const door = new T.Mesh(new T.BoxGeometry(1.92, 0.25, 2.0), mats.white); door.position.y = 0.5; g.add(door);
   const cab = new T.Mesh(new T.BoxGeometry(1.6, 0.5, 2.0), mats.glass); cab.position.set(0, 0.98, -0.2); g.add(cab);
   const tg = new T.CylinderGeometry(0.36, 0.36, 0.3, 14); tg.rotateZ(Math.PI / 2);
   for (const [x, z] of [[-0.95, 1.3], [0.95, 1.3], [-0.95, -1.3], [0.95, -1.3]]) {
     const w = new T.Mesh(tg, mats.tire); w.position.set(x, 0.36, z); g.add(w);
-  }
-  const bar = new T.Group(); bar.position.set(0, 1.28, -0.2);
+  } }
+  const bar = new T.Group(); bar.position.set(0, shared ? 1.62 : 1.28, 0.1); bar.visible = !shared;
   const r = new T.Mesh(new T.BoxGeometry(0.6, 0.14, 0.3), mats.red.clone()); r.position.x = -0.33;
   const b = new T.Mesh(new T.BoxGeometry(0.6, 0.14, 0.3), mats.blue.clone()); b.position.x = 0.33;
   bar.add(r, b); g.add(bar);
-  const rl = new T.PointLight(0xff1020, 0, 12); rl.position.set(-0.5, 1.6, 0);
-  const bl = new T.PointLight(0x1040ff, 0, 12); bl.position.set(0.5, 1.6, 0);
+  const rl = new T.Object3D(), bl = new T.Object3D(); rl.intensity = bl.intensity = 0; // niente point light (luci più sobrie)
   g.add(rl, bl);
   g.castShadow = true;
   g.userData = { r, b, rl, bl };
@@ -138,7 +139,7 @@ function setHeatInternal(lv, ctx) {
   emit(ctx || C, 'heatChange', { from, to: lv });
 }
 
-export function setHeat(level) { setHeatInternal(level, C); }
+export function setHeat(level) { if (level > 0) { busted = false; bustMeter = 0; } setHeatInternal(level, C); }
 export function addHeat(amount) {
   notoriety += amount;
   let lv = heat; while (lv < 5 && notoriety >= HEAT_THRESH[lv + 1]) lv++;
@@ -212,7 +213,7 @@ export function update(dt, ctx) {
   const pSpeed = p.speed || 0;
   if (heat === 0) {
     // velocità eccessiva attira la polizia
-    if (pSpeed > 45) notoriety += dt * (pSpeed - 45) * 0.15;
+    if (pSpeed > 45 && !ctx.state?.noSpeedTrap) notoriety += dt * (pSpeed - 45) * 0.15;
     if (notoriety >= HEAT_THRESH[1]) setHeatInternal(1, ctx);
     renderHud(); return;
   }
@@ -305,7 +306,7 @@ export function update(dt, ctx) {
   }
 
   // arresto: circondato e lento
-  const slow = pSpeed < 12 ? 1.5 : pSpeed < 25 ? 0.6 : 0.15;
+  const slow = pSpeed < 8 ? 1.5 : pSpeed < 20 ? 0.5 : 0; // ti arrestano solo se rallenti
   if (close >= 2) bustMeter += dt * 0.12 * close * slow * (0.6 + cfg.aggr);
   else bustMeter -= dt * 0.25;
   if (p.health != null && p.health <= 0) bustMeter = 1;

@@ -53,19 +53,21 @@ function makeVehicle(THREE, truck) {
   const L = truck ? 9 : 4.3, W = truck ? 2.5 : 1.85, H = truck ? 3.2 : 1.35;
   const paint = new THREE.MeshStandardMaterial({ color: colors[(Math.random() * colors.length) | 0], metalness: 0.6, roughness: 0.35 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.55, L), paint);
-  body.position.y = H * 0.35; body.castShadow = true; g.add(body);
+  const shared = globalThis.tratta?.makeCar?.(truck ? 'truck' : 'traffic');
+  if (shared) g.add(shared);
+  body.position.y = H * 0.35; body.castShadow = true; if (!shared) g.add(body);
   const cab = new THREE.Mesh(new THREE.BoxGeometry(W * 0.9, H * 0.45, truck ? 2.2 : L * 0.5),
     new THREE.MeshStandardMaterial({ color: truck ? 0xdddddd : 0x111111, metalness: 0.9, roughness: 0.1 }));
-  cab.position.set(0, H * 0.82, truck ? -L / 2 + 1.2 : 0.2); g.add(cab);
+  cab.position.set(0, H * 0.82, truck ? -L / 2 + 1.2 : 0.2); if (!shared) g.add(cab);
   if (truck) { const box = new THREE.Mesh(new THREE.BoxGeometry(W, H, L - 2.6), new THREE.MeshStandardMaterial({ color: 0xf3f4f6, roughness: 0.8 }));
-    box.position.set(0, H * 0.6, 1.2); g.add(box); }
+    box.position.set(0, H * 0.6, 1.2); if (!shared) g.add(box); }
   const mk = c => new THREE.MeshBasicMaterial({ color: c });
   const lights = {};
   for (const s of [-1, 1]) {
     const brake = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.18, 0.05), mk(0x440000));
-    brake.position.set(s * (W / 2 - 0.25), H * 0.45, L / 2 + 0.01); g.add(brake);
+    brake.position.set(s * (W / 2 - 0.25), shared ? (truck ? 0.9 : 0.75) : H * 0.45, L / 2 + 0.03); g.add(brake);
     const ind = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.06), mk(0x442200));
-    ind.position.set(s * (W / 2 - 0.05), H * 0.45, L / 2 + 0.02); g.add(ind);
+    ind.position.set(s * (W / 2 - 0.05), shared ? (truck ? 0.9 : 0.75) : H * 0.45, L / 2 + 0.04); g.add(ind);
     const indF = ind.clone(); indF.material = ind.material; indF.position.z = -L / 2 - 0.02; g.add(indF);
     lights[s < 0 ? 'brakeL' : 'brakeR'] = brake; lights[s < 0 ? 'indL' : 'indR'] = ind;
   }
