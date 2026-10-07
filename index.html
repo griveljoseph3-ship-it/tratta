@@ -1,81 +1,50 @@
 <!DOCTYPE html>
 <html lang="it">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-  <title>Tratta</title>
-  <style>
-    html, body { margin: 0; height: 100%; background: #10141c; overflow: hidden; color: #e8eef7; font-family: "Segoe UI", system-ui, sans-serif; }
-    canvas { display: block; }
-    #ui { position: fixed; inset: 0; pointer-events: none; }
-    #top { position: absolute; left: 16px; right: 16px; top: 12px; display: flex; justify-content: space-between; gap: 12px; }
-    #story { max-width: 460px; font-size: 14px; line-height: 1.4; background: rgba(8,10,16,0.45); padding: 8px 10px; border-radius: 10px; }
-    #cash { font-size: 22px; font-weight: 700; }
-    #hud { position: absolute; left: 16px; bottom: 96px; }
-    #speed { font-size: 52px; font-weight: 800; line-height: 0.9; }
-    #speed span { font-size: 14px; margin-left: 6px; opacity: 0.7; }
-    #meta { margin-top: 4px; font-size: 13px; letter-spacing: 0.4px; }
-    #job { position: absolute; right: 16px; bottom: 108px; text-align: right; font-size: 14px; }
-    #touch { position: absolute; left: 0; right: 0; bottom: 12px; display: flex; justify-content: space-between; padding: 0 12px; pointer-events: none; }
-    #touch button, #shopBtn, button.go, button.choice, button.buy { pointer-events: auto; }
-    #touch button { width: 84px; height: 64px; border-radius: 14px; border: 1px solid rgba(255,255,255,0.16); background: rgba(8,12,18,0.62); color: white; font-weight: 700; }
-    #shopBtn { position: absolute; left: 16px; top: 78px; pointer-events: auto; border: 0; border-radius: 10px; padding: 8px 12px; background: #d7ffe8; color: #102016; font-weight: 700; }
-    #menu, #shop, #overlay { position: absolute; inset: 0; pointer-events: auto; display: flex; align-items: center; justify-content: center; background: rgba(6,8,12,0.78); }
-    #shop, #overlay { display: none; }
-    .panel { width: min(680px, calc(100% - 28px)); background: #141b27; border-radius: 16px; padding: 22px; }
-    h1 { margin: 0 0 8px; }
-    p { color: #b7c3d4; line-height: 1.45; }
-    .choices, .jobs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-    button.choice, button.go, button.buy { border: 0; border-radius: 12px; padding: 12px; background: #1d2736; color: inherit; text-align: left; }
-    button.choice.active { outline: 2px solid #7CFFB2; }
-    button.go { width: 100%; margin-top: 12px; text-align: center; background: #d7ffe8; color: #102016; font-weight: 800; }
-    .up { display: flex; justify-content: space-between; gap: 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.08); }
-    button.buy { background: #d7ffe8; color: #102016; font-weight: 700; }
-  </style>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>Tratta</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<style>
+html,body{margin:0;height:100%;background:#0b0e14;overflow:hidden;color:#eef3fa;font-family:"Segoe UI",system-ui,sans-serif}
+canvas{display:block}
+#ui{position:fixed;inset:0;pointer-events:none}
+.panelWrap{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(5,7,12,.72);pointer-events:auto}
+.hidden{display:none!important}
+.panel{max-width:560px;width:90%;background:rgba(14,18,28,.92);border:1px solid rgba(255,255,255,.12);border-radius:16px;padding:22px 24px;max-height:88vh;overflow:auto}
+h1{margin:0 0 8px;font-size:30px;letter-spacing:1px}h2{margin:0 0 6px;color:#ffb23e;font-size:14px;letter-spacing:2px;text-transform:uppercase}
+p{line-height:1.5;opacity:.92}
+button{font:inherit;color:inherit;cursor:pointer}
+.go{background:linear-gradient(#ff8a1f,#e5590b);border:0;border-radius:10px;padding:12px 22px;font-weight:700;font-size:17px;margin:6px 6px 0 0}
+.choice{display:block;width:100%;text-align:left;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);border-radius:10px;padding:10px 12px;margin:6px 0}
+.choice.active{border-color:#ff8a1f;background:rgba(255,138,31,.14)}.choice.locked{opacity:.4;pointer-events:none}
+.choice span{display:block;font-size:13px;opacity:.75}
+.row{display:flex;gap:8px;flex-wrap:wrap}.row .choice{flex:1;min-width:120px}
+#hud{position:absolute;left:18px;bottom:96px;text-shadow:0 2px 6px #000}
+#speed{font-size:56px;font-weight:800;line-height:.9}#speed span{font-size:14px;opacity:.7;margin-left:6px}
+#bar{width:200px;height:8px;background:rgba(255,255,255,.15);border-radius:4px;margin-top:8px;overflow:hidden}#hp{height:100%;background:#4cd964;width:100%}
+#obj{position:absolute;left:18px;top:14px;max-width:420px;background:rgba(6,8,14,.55);padding:8px 12px;border-radius:10px;font-size:14px}
+#heat{position:absolute;right:18px;top:14px;font-size:26px;letter-spacing:3px;text-shadow:0 2px 6px #000}
+#msg{position:absolute;top:30%;width:100%;text-align:center;font-size:30px;font-weight:800;text-shadow:0 3px 10px #000;opacity:0;transition:opacity .3s}
+#touch{position:absolute;left:0;right:0;bottom:12px;display:flex;justify-content:space-between;padding:0 12px}
+#touch button{pointer-events:auto;width:84px;height:64px;border-radius:14px;border:1px solid rgba(255,255,255,.16);background:rgba(8,12,18,.6);font-size:18px;font-weight:700}
+</style>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
 </head>
 <body>
-  <div id="ui">
-    <div id="top"><div id="story">Notte sulla A1. Il garage è in debito e tu hai solo questa tratta.</div><div id="cash">0 €</div></div>
-    <button id="shopBtn" type="button">Officina</button>
-    <div id="hud"><div id="speed">0<span>km/h</span></div><div id="meta">tratta 0.0 km</div></div>
-    <div id="job">Nessun lavoro attivo</div>
-    <div id="touch">
-      <div><button id="tLeft" type="button">◀</button> <button id="tRight" type="button">▶</button></div>
-      <div><button id="tBrake" type="button">FRENO</button> <button id="tGas" type="button">GAS</button></div>
-    </div>
-    <div id="menu">
-      <div class="panel">
-        <h1>Tratta</h1>
-        <p>Strada infinita. Fai slalom nel traffico, prendi le consegne e spendi in modifiche vere. Niente città: solo asfalto, corsie e macchine.</p>
-        <div class="choices">
-          <button class="choice active" id="pickCar" type="button"><strong>Berlina</strong><span>Più stabile, meno agile.</span></button>
-          <button class="choice" id="pickBike" type="button"><strong>Moto</strong><span>Passa negli spazi stretti, soffre gli urti.</span></button>
-        </div>
-        <p>Scegli un lavoro</p>
-        <div class="jobs">
-          <button class="choice active" id="jobExpress" type="button"><strong>Consegna espressa</strong><span>4 km in 80 secondi. Paga 120 €.</span></button>
-          <button class="choice" id="jobClean" type="button"><strong>Slalom pulito</strong><span>Supera 28 macchine senza toccarle. Paga 70 €.</span></button>
-        </div>
-        <button class="go" id="startBtn" type="button">Parti</button>
-      </div>
-    </div>
-    <div id="shop">
-      <div class="panel">
-        <h1>Officina</h1>
-        <p id="shopCash">Soldi: 0 €</p>
-        <div id="upList"></div>
-        <button class="go" id="shopClose" type="button">Torna in strada</button>
-      </div>
-    </div>
-    <div id="overlay">
-      <div class="panel">
-        <h1 id="overTitle">Tratta chiusa</h1>
-        <p id="overText"></p>
-        <button class="go" id="retryBtn" type="button">Altra tratta</button>
-      </div>
-    </div>
-  </div>
-  <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
-  <script src="./game.js"></script>
+<div id="ui">
+  <div id="obj" class="hidden"></div><div id="heat" class="hidden"></div><div id="msg"></div>
+  <div id="hud"><div id="speed">0<span>km/h</span></div><div id="meta"></div><div id="bar" class="hidden"><div id="hp"></div></div></div>
+  <div id="touch"><div><button id="tL">◀</button> <button id="tR">▶</button></div><div><button id="tB">FRENO</button> <button id="tG">GAS</button></div></div>
+  <div id="menu" class="panelWrap hidden" style="z-index:40"><div class="panel">
+    <h1>Garage</h1>
+    <h2>Mezzo</h2><div class="row"><button class="choice active" data-car="0"><b>Berlina GT</b><span>Stabile, regge gli urti.</span></button><button class="choice" data-car="1"><b>Coupé R</b><span>Più veloce, più fragile.</span></button></div>
+    <h2>Grafica</h2><div class="row"><button class="choice" data-q="2">Alta</button><button class="choice" data-q="1">Media</button><button class="choice" data-q="0">Bassa</button></div>
+    <button class="go" id="menuClose">Chiudi</button><p style="font-size:13px;opacity:.6">Frecce/A-D sterzo · W/↑ gas · S/↓ freno · Spazio nitro</p>
+  </div></div>
+  <div id="intro" class="panelWrap hidden"><div class="panel"><h2 id="inCh"></h2><h1 id="inT"></h1><p id="inTx"></p><p id="inGoal" style="color:#ffb23e"></p><button class="go" id="inGo">Parti</button></div></div>
+  <div id="over" class="panelWrap hidden"><div class="panel"><h1 id="ovT"></h1><p id="ovTx"></p><button class="go" id="ovRetry">Riprova</button><button class="go" id="ovMenu" style="background:#334">Menu</button></div></div>
+</div>
+<script type="module" src="./game.js"></script>
 </body>
 </html>
