@@ -197,7 +197,7 @@ function setEnvironment(env) {
   if (env && typeof env === 'object') env = env.id;
   if (!ENV_LOOK[env]) env = 'city';
   ENV = env; const L = ENV_LOOK[env];
-  for (const k in envSets) for (const s of envSets[k]) s.im.visible = k === env;
+  for (const k in envSets) for (const s of envSets[k]) s.im.visible = !Env && k === env;
   scene.fog.color.set(L.fog); scene.fog.density = L.density;
   sunDir.setFromSphericalCoords(1, THREE.MathUtils.degToRad(L.sun[0]), THREE.MathUtils.degToRad(L.sun[1]));
   su.sunPosition.value.copy(sunDir); su.turbidity.value = L.turb; su.rayleigh.value = L.ray;
@@ -207,11 +207,18 @@ function setEnvironment(env) {
   for (const rb of ribbons.slice(1)) rb.m.visible = env !== 'jungle';
   if (envMap) envMap.dispose(); skyScene.add(sky); envMap = pmrem.fromScene(skyScene, 0.04).texture; scene.add(sky); scene.environment = envMap;
   road.grip = env === 'jungle' ? .75 : env === 'desert' ? .85 : 1;
+  if (Env) {
+    try { envCtx.shadows = quality > 0; Env.setEnvironment(env, envCtx); } catch (e) { console.error(e); }
+    hemi.visible = sun.visible = false; // luci e nebbia dal modulo ambienti (un sole + emisfero)
+  } else { hemi.visible = sun.visible = true; scene.fog = scene.fog || new THREE.FogExp2(L.fog, L.density); }
 }
+let Env = null, Cars = null;
+const envCtx = Object.create(null);
 let envMap = null; const skyScene = new THREE.Scene();
 
-function updateScenery(pz) {
-  for (const s of envSets[ENV]) {
+function updateScenery(pz, dt = 0) {
+  if (Env) { try { Env.update(dt, envCtx); } catch (e) { console.error(e); } }
+  else for (const s of envSets[ENV]) {
     s.items.forEach((it, i) => {
       const span = it.span || SC_SPAN;
       while (it.z > pz + 40) it.z -= span; while (it.z < pz - span + 40) it.z += span;
@@ -241,7 +248,7 @@ const LEN = { delivery: 7.5, 'truck-flat': 7.5, van: 5, truck: 5.3, suv: 4.7, 's
 function makeCar(kind = 'traffic', opts = {}) {
   let name = kind === 'traffic' ? pick(TRAFFIC) : kind === 'truck' ? pick(['delivery', 'truck-flat']) : (MODELS[kind] ? kind : TYPE_MODEL[kind] || 'sedan');
   const M = MODELS[name]; const g = new THREE.Group();
-  if (!M) return fallbackCar(opts.color ?? 0x8899aa);
+  if (!M) return Cars ? Cars.makeCar(kind === 'traffic' ? 'traffic' : name, opts) : fallbackCar(opts.color ?? 0x8899aa);
   const inst = M.root.clone(true);
   const len = LEN[name] || 4.4, s = len / Math.max(M.size.z, M.size.x);
   inst.scale.setScalar(s); inst.position.set(-M.cx * s, -M.minY * s, -M.cz * s);
@@ -262,7 +269,7 @@ let CARS = [{ id: 'berlina', name: 'Berlina', type: 'berlina', accel: 5, topSpee
 let carDef = CARS[0];
 const player = { mesh: null, body: null, speed: 0, lane: 1, x: road.laneX(1), z: 0, health: 100, maxHealth: 100, h: 0, steer: 0, nitro: 1, distance: 0, gear: 1, rpm: 0, shiftT: 0, drift: 0, roll: 0, pitch: 0 };
 function physOf(c) {
-  return { max: (c.topSpeed || 200) / 3.6, power: 2.2 + (c.accel || 5) * .62, grip: 6.5 + (c.grip || 6) * .45, steer: .9 + (c.handling || 6) * .1, offroad: !!c.offroad,
+  return { max: (c.topSpeed || 200) / 3.6, power: 2.0 + (c.accel || 5) * .56, grip: 6.5 + (c.grip || 6) * .45, steer: .9 + (c.handling || 6) * .1, offroad: !!c.offroad,
     dmg: c.type === 'supercar' ? 1.25 : c.type === 'furgone' || c.type === 'SUV' || c.type === 'pick-up' ? .8 : 1 };
 }
 function buildPlayer() {
@@ -455,14 +462,14 @@ function loop() {
   const n = ctx.debug.substeps || 1; // solo per test automatici
   for (let i = 0; i < n; i++) step(n > 1 ? 1 / 20 : dt);
   if (ctx.state.running) updateHUD();
-  if (player.mesh) { updateCamera(dt); updateScenery(player.z); }
+  if (player.mesh) { updateCamera(dt); updateScenery(player.z, dt); }
   bend(); composer.render(dt); unbend();
   fpsAcc += dt; fpsN++; if (fpsAcc > 2) { ctx.state.fps = fpsN / fpsAcc; fpsAcc = fpsN = 0; }
 }
 
 // ---------- Menu impostazioni ----------
 function markQ() { document.querySelectorAll('[data-q]').forEach(x => x.classList.toggle('active', +x.dataset.q === quality)); }
-document.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { quality = +b.dataset.q; localStorage.setItem('tratta-q', quality); markQ(); setupPost(); });
+document.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { quality = +b.dataset.q; localStorage.setItem('tratta-q', quality); markQ(); setupPost(); if (Env) setEnvironment(ENV); });
 $('ovRetry').onclick = () => ui.hide('over'); $('ovMenu').onclick = () => { ui.hide('over'); Story?.openMainMenu?.(); };
 const gear = document.createElement('button'); gear.textContent = '⚙'; gear.title = 'Grafica';
 gear.style.cssText = 'position:fixed;right:14px;bottom:90px;z-index:50;width:44px;height:44px;border-radius:50%;border:1px solid #fff3;background:#0009;color:#fff;font-size:20px;pointer-events:auto';
@@ -471,6 +478,8 @@ $('menuClose').onclick = () => ui.hide('menu');
 
 async function loadModules() {
   const imp = async n => { try { return await import(`./${n}.js`); } catch (e) { console.error('modulo', n, e); } };
+  Env = await imp('environments'); Cars = await imp('cars');
+  Object.assign(envCtx, { THREE, scene, camera, player, keepBackground: true, groundMaterial: groundMat, road: Object.assign(Object.create(road), { halfWidth: TOTAL_W / 2 + CURB + 0.6 }) });
   Diff = await imp('difficulty'); Police = await imp('police'); Story = await imp('story');
   if (Story?.CARS) { CARS = Story.CARS; carDef = Story.getState?.().car || CARS[0]; }
   Diff?.init(modCtx); Police?.init(modCtx); Story?.init(modCtx);
