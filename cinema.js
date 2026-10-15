@@ -24,7 +24,7 @@
  * Asset: i ritratti sono SVG generati qui (copie in cinema/*.svg). Nessun file esterno richiesto.
  */
 import * as THREE from 'three';
-import { CHAPTERS, PROTAGONIST } from './story.js';
+import { CHAPTERS, PROTAGONIST, PROLOGUE } from './story.js';
 import { makeCar } from './cars.js';
 
 // ---------------------------------------------------------------- personaggi (SVG)
@@ -138,7 +138,7 @@ export function init(ctx = {}) {
 const ensure = () => { if (!C.root) init(C.ctx); };
 
 // ---------------------------------------------------------------- mini-motore 3D (scena propria)
-function makeStage(parent, env = 'city') {
+function makeStage(parent, env = 'city', time = 'night') {
   const canvas = el('canvas'); parent.appendChild(canvas);
   const q = C.ctx.quality ?? 1;
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: q > 0, powerPreference: 'high-performance' });
@@ -150,9 +150,11 @@ function makeStage(parent, env = 'city') {
   const P = { city: { sky: 0x1a2235, fog: 0x1a2235, ground: 0x23262b, road: 0x2a2c30, sun: 0xffc9a0 },
     jungle: { sky: 0x1e2b22, fog: 0x22301f, ground: 0x253a1f, road: 0x4a3a2a, sun: 0xd8f0c0 },
     desert: { sky: 0x6a4a3a, fog: 0x8a6448, ground: 0xb08a5a, road: 0x9a7a52, sun: 0xffd9a0 } }[env] || {};
+  if (time === 'day') Object.assign(P, { sky: { city: 0x9fc3e6, jungle: 0x9fb89a, desert: 0xe8cfa0 }[env] || 0x9fc3e6, sun: 0xfff2dc }, { fog: { city: 0xb8cde0, jungle: 0x8fa88a, desert: 0xe0c69a }[env] || 0xb8cde0 });
+  else if (time === 'dusk') Object.assign(P, { sky: 0x8a5a5a, fog: 0x7a5050, sun: 0xff9a5a });
   scene.background = new THREE.Color(P.sky); scene.fog = new THREE.Fog(P.fog, 25, 140);
   const camera = new THREE.PerspectiveCamera(38, 1, .1, 400);
-  scene.add(new THREE.HemisphereLight(0xbfd4ff, P.ground, .9));
+  scene.add(new THREE.HemisphereLight(0xbfd4ff, P.ground, time === 'day' ? 1.4 : .9));
   const sun = new THREE.DirectionalLight(P.sun, 2.2); sun.position.set(-20, 18, 10); sun.castShadow = q > 0;
   sun.shadow.mapSize.set(1024, 1024); Object.assign(sun.shadow.camera, { left: -15, right: 15, top: 15, bottom: -15 }); scene.add(sun);
   const rim = new THREE.DirectionalLight(0x6fa8ff, 1.0); rim.position.set(15, 6, -20); scene.add(rim);
@@ -278,11 +280,13 @@ function buildCutscene(id) {
   const m = /^(chapter|twist)(\d)$/.exec(id); let ch = 0, kind = 'intro';
   if (m) { kind = m[1]; ch = +m[2] - 1; } else if (id !== 'intro') throw new Error('cutscene sconosciuta: ' + id);
   const C0 = CHAPTERS[ch]; if (!C0) throw new Error('capitolo inesistente: ' + id);
-  const lines = kind === 'twist' ? toLines(C0.outro, SPK.outro[ch]) : toLines(C0.intro, SPK.intro[ch]);
+  const P0 = kind === 'intro' && PROLOGUE ? PROLOGUE : null;
+  const lines = P0 ? P0.lines : kind === 'twist' ? (C0.outroLines || toLines(C0.outro, SPK.outro[ch])) : (C0.introLines || toLines(C0.intro, SPK.intro[ch]));
   const shots = kind === 'chapter' ? ['arrive'] : PLAN[kind === 'intro' ? 'intro' : 'twist' + (ch + 1)];
-  const subs = { arrive: kind === 'twist' ? 'Più tardi…' : C0.env === 'city' ? 'Banca d\'Oro, 02:47' : C0.env === 'jungle' ? 'Da qualche parte nella giungla' : 'Deserto, 45 gradi',
+  const subs = { arrive: kind === 'twist' ? 'Più tardi…' : (P0 || C0).place || (C0.env === 'city' ? 'Napoli' : C0.env === 'jungle' ? 'Da qualche parte nella giungla' : 'Deserto, 45 gradi'),
     police: 'Sirene. Tante sirene.', escape: '«VAI!»' };
-  return { ch, kind, env: C0.env, title: C0.title, lines, shots, subs };
+  const time = (P0 || C0).time || 'night';
+  return { ch, kind, env: C0.env, time, title: P0 ? P0.title : C0.title, lines, shots, subs };
 }
 
 export async function playCutscene(id, ctx) {
@@ -290,7 +294,7 @@ export async function playCutscene(id, ctx) {
   if (C.playing) throw new Error('cutscene già in corso');
   const S = buildCutscene(id); C.playing = true; emit('cinema', { active: true, kind: 'cutscene', id });
   const L = el('div', 'tc-layer'); C.root.appendChild(L);
-  const st = makeStage(L, S.env);
+  const st = makeStage(L, S.env, S.time);
   const fade = el('div', 'tc-fade'), bt = el('div', 'tc-bar t'), bb = el('div', 'tc-bar b'), sub = el('div', 'tc-subt'), chap = el('div', 'tc-chap'), skip = el('button', 'tc-skip', 'Salta ▸▸');
   const [cn, ...rest] = S.title.split('—'); chap.innerHTML = `<b>${cn.trim().toUpperCase()}</b><i>${(rest.join('—') || '').trim()}</i>`;
   L.append(bt, bb, chap, sub, fade, skip);

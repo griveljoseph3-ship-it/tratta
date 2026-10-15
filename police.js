@@ -25,12 +25,13 @@
  * per il tempo di cooldown. Arresto se fermo/circondato a lungo.
  */
 
+import { rand } from './rng.js';
 let T, S, C, unitsRoot;
 const units = [];      // auto polizia
 const blocks = [];     // posti di blocco / chiodi
 let heli = null;
 let heat = 0, notoriety = 0, cooldown = 0, bustMeter = 0, busted = false;
-let spawnTimer = 0, blockTimer = 0, time = 0;
+let spawnTimer = 0, blockTimer = 0, time = 0, roleT = 0;
 let hud = null, mats = null;
 
 const HEAT_CFG = [
@@ -146,6 +147,7 @@ export function addHeat(amount) {
   if (lv > heat) setHeatInternal(lv, C);
   if (heat > 0) cooldown = HEAT_CFG[heat].cool;
 }
+export function nearest(px = 0) { let b = null; for (const u of units) if (u.alive) { const d = Math.hypot(u.z, u.x - px); if (!b || d < b.dist) b = { dist: d, pan: (u.x - px) / 8 }; } return heat > 0 ? b : null; }
 export function getState() { return { heat, cooldown, units: units.length, busted, bustMeter }; }
 
 export function reset() {
@@ -165,22 +167,55 @@ export function init(ctx) {
   renderHud();
 }
 
+// Ogni unità è un'auto indipendente: posizione/velocità proprie, tempo di reazione e abilità proprie.
+// z = distanza lungo la strada RELATIVA al giocatore (z>0 davanti). Il movimento laterale ha limiti
+// fisici (non copia mai lo sterzo del giocatore): l'unità stima dove sarai e va a chiuderti la strada.
 function spawnUnit(ctx, behind) {
   const L = lanes(ctx);
-  const lane = (Math.random() * L.length) | 0;
+  const lane = (rand() * L.length) | 0;
   const mesh = makeCar(); unitsRoot.add(mesh);
-  const roles = ['chase', 'flankL', 'flankR', 'block', 'box'];
-  const u = { mesh, x: L[lane], z: behind ? -40 - Math.random() * 20 : 90 + Math.random() * 30,
-    speed: (ctx.player.speed || 20) * (behind ? 1.1 : 0.6), role: roles[units.length % roles.length],
-    alive: true, crash: 0 };
+  const pS = ctx.player.speed || 20;
+  const u = { mesh, x: L[lane], vx: 0, z: behind ? -45 - rand() * 25 : 150 + rand() * 70,
+    speed: behind ? pS * (1.05 + rand() * .15) : pS * (.35 + rand() * .3), role: behind ? 'chase' : 'block',
+    alive: true, crash: 0, react: .25 + rand() * .45, skill: .7 + rand() * .45, estX: ctx.player.x || 0, estV: 0,
+    think: 0, tx: L[lane], tz: 0, lane: L[lane], hitCd: 0 };
   units.push(u);
+}
+
+// Ruoli coordinati: davanti = sbarramento su corsie diverse; dietro = speronamento, affiancamento, sorpasso per bloccare.
+function assignRoles(L, px) {
+  const alive = units.filter(u => u.alive);
+  const ahead = alive.filter(u => u.z > 10).sort((a, b) => a.z - b.z);
+  const behind = alive.filter(u => u.z <= 10).sort((a, b) => b.z - a.z);
+  const pl = laneIndex(L, px), order = [pl, pl - 1, pl + 1, pl - 2, pl + 2].filter(i => i >= 0 && i < L.length);
+  ahead.forEach((u, i) => { u.role = 'block'; u.blockLane = order[i % order.length]; });
+  const leftRoom = px - L[0], rightRoom = L[L.length - 1] - px;
+  behind.forEach((u, i) => {
+    if (u.role === 'overtake' && u.z < 10) return; // sta già sorpassando per mettersi davanti
+    if (i === 0) u.role = 'ram';
+    else if (i === 1) u.role = leftRoom > rightRoom ? 'flankL' : 'flankR';
+    else if (i === 2) u.role = leftRoom > rightRoom ? 'flankR' : 'flankL';
+    else u.role = u.skill > .9 ? 'overtake' : 'chase';
+  });
+}
+
+function trafficNear(ctx, u, pz) {
+  const list = ctx.traffic?.() || [];
+  let hit = null, dodge = 0;
+  for (const v of list) {
+    const rz = (pz - v.z) - u.z; // >0: traffico davanti all'unità
+    const dx = v.x - u.x;
+    if (Math.abs(rz) < 4.4 && Math.abs(dx) < 2) hit = v;
+    else if (rz > 0 && rz < 18 + u.speed * .4 && Math.abs(dx) < 2.6) dodge += dx > 0 ? -1 : 1;
+  }
+  return { hit, dodge };
 }
 
 function spawnBlock(ctx, type) {
   const L = lanes(ctx);
   const g = new T.Group();
   const z = 120;
-  let gapLane = (Math.random() * L.length) | 0;
+  let gapLane = (rand() * L.length) | 0;
   if (type === 'roadblock') {
     L.forEach((lx, i) => {
       if (i === gapLane) return;
@@ -231,11 +266,11 @@ export function update(dt, ctx) {
   // spawn
   spawnTimer -= dt;
   if (units.filter(u => u.alive).length < cfg.max && spawnTimer <= 0) {
-    spawnUnit(ctx, Math.random() < 0.7); spawnTimer = 3.5 - heat * 0.5;
+    spawnUnit(ctx, rand() < 0.6 - heat * .06); spawnTimer = (3.8 - heat * 0.45) * (.7 + rand() * .6);
   }
   if (heat >= 3) {
     blockTimer -= dt;
-    if (blockTimer <= 0) { spawnBlock(ctx, heat >= 4 && Math.random() < 0.5 ? 'spikes' : 'roadblock'); blockTimer = 14 - heat * 1.5; }
+    if (blockTimer <= 0) { spawnBlock(ctx, heat >= 4 && rand() < 0.5 ? 'spikes' : 'roadblock'); blockTimer = 14 - heat * 1.5; }
   }
   if (heat >= 5 && !heli) { heli = makeHeli(); unitsRoot.add(heli.mesh); }
 
@@ -246,39 +281,78 @@ export function update(dt, ctx) {
   const flash = Math.floor(time * 8) % 2;
   let close = 0;
 
+  roleT -= dt; if (roleT <= 0) { assignRoles(L, px); roleT = .5; }
+  const pz = p.z || 0, xMin = L[0] - 1.2, xMax = L[L.length - 1] + 1.2;
   units.forEach((u, i) => {
     const ud = u.mesh.userData;
     ud.r.material.emissiveIntensity = flash ? 3 : 0.2; ud.b.material.emissiveIntensity = flash ? 0.2 : 3;
-    ud.rl.intensity = flash ? 6 : 0; ud.bl.intensity = flash ? 0 : 6;
-    if (!u.alive) { u.crash += dt; u.z -= pSpeed * dt; u.mesh.rotation.y += dt * 4; }
+    if (!u.alive) { u.crash += dt; u.speed = Math.max(0, u.speed - 18 * dt); u.z += (u.speed - pSpeed) * dt; u.mesh.rotation.y += dt * 3 * Math.max(0, 1 - u.crash / 1.5); }
     else {
-      // velocità target: raggiungi il punto di intercetto
-      let targetZ = -6, targetX = predX;
-      if (u.role === 'flankL') { targetZ = 0; targetX = Math.max(L[0], predX - 3.6); }
-      else if (u.role === 'flankR') { targetZ = 0; targetX = Math.min(L[L.length - 1], predX + 3.6); }
-      else if (u.role === 'block') { targetZ = 12; targetX = predX; }
-      else if (u.role === 'box') { targetZ = 6; targetX = L[laneIndex(L, px)]; }
-      const dz = targetZ - u.z;
-      const want = pSpeed + Math.max(-15, Math.min(25, dz * 1.2)) * cfg.speed;
-      u.speed += (want - u.speed) * Math.min(1, dt * (1 + cfg.aggr * 2));
-      u.speed = Math.min(u.speed, Math.max(pSpeed, 30) * cfg.speed + 10);
+      // percezione con ritardo personale: l'unità non "sa" lo sterzo, vede solo dove sei con un po' di lag
+      const k = Math.min(1, dt / u.react);
+      u.estV += ((px - u.estX) / Math.max(dt, 1e-3) * k - u.estV) * Math.min(1, dt * 2); u.estX += (px - u.estX) * k;
+      u.think -= dt;
+      if (u.think <= 0) { // decide un nuovo piano ogni 0.3–0.8 s
+        u.think = .3 + rand() * .5 / u.skill;
+        const tPred = Math.max(.3, Math.min(2.5, u.role === 'block' ? u.z / Math.max(4, pSpeed - u.speed) : .8));
+        const pred = Math.max(L[0], Math.min(L[L.length - 1], u.estX + u.estV * tPred * cfg.aggr));
+        switch (u.role) {
+          case 'block': { const bl = L[u.blockLane ?? laneIndex(L, pred)]; u.tx = u.z < 45 ? pred * .6 + bl * .4 : bl; u.tz = 0; break; }
+          case 'ram': u.tx = pred; u.tz = -2; break;
+          case 'flankL': u.tx = Math.max(xMin, pred - 2.4); u.tz = .5; break;
+          case 'flankR': u.tx = Math.min(xMax, pred + 2.4); u.tz = .5; break;
+          case 'overtake': { const sideL = pred - L[0] > L[L.length - 1] - pred; u.tx = sideL ? L[0] : L[L.length - 1]; u.tz = 30; if (u.z > 22) u.role = 'block'; break; }
+          default: u.tx = pred + (u.skill - .9) * 3; u.tz = -9;
+        }
+      }
+      // velocità longitudinale
+      let want;
+      if (u.role === 'block') { // sbarramento: rallenta davanti a te, frena forte quando sei vicino
+        const closeF = Math.max(0, 1 - u.z / 60);
+        want = Math.max(7, pSpeed * (.85 - .45 * closeF * cfg.aggr));
+      } else {
+        const dz = u.tz - u.z;
+        want = pSpeed + Math.max(-12, Math.min(22, dz * 1.1)) * cfg.speed;
+      }
+      want = Math.max(0, Math.min(want, Math.max(pSpeed, 30) * cfg.speed + 12));
+      const acc = want > u.speed ? 9 * u.skill : 14;
+      u.speed += Math.sign(want - u.speed) * Math.min(Math.abs(want - u.speed), acc * dt);
       u.z += (u.speed - pSpeed) * dt;
-      const dx = targetX - u.x;
-      u.x += Math.sign(dx) * Math.min(Math.abs(dx), dt * (5 + cfg.aggr * 6));
+      // laterale: accelerazione e velocità laterale limitate (fisica, non copia)
+      const tn = trafficNear(ctx, u, pz);
+      let tx = u.tx + tn.dodge * 3;
+      const maxVx = Math.min(2.5 + 3.5 * u.skill * cfg.aggr, .2 * Math.max(u.speed, 6));
+      const wantVx = Math.max(-maxVx, Math.min(maxVx, (tx - u.x) * 1.6));
+      u.vx += Math.sign(wantVx - u.vx) * Math.min(Math.abs(wantVx - u.vx), 7 * dt);
       // separazione tra unità
-      units.forEach((o, j) => { if (j !== i && o.alive && Math.abs(o.z - u.z) < 5 && Math.abs(o.x - u.x) < 2) u.x += Math.sign(u.x - o.x || 1) * dt * 4; });
-      u.mesh.rotation.y = -Math.atan2(dx, 8) * 0.4;
-      // contatto
-      if (Math.abs(u.z) < 3.6 && Math.abs(u.x - px) < 2) {
-        close += 1.5; emit(ctx, 'damage', { amount: 4 * dt * heat });
-        u.x += Math.sign(u.x - px || 1) * dt * 3;
-      } else if (Math.abs(u.z) < 7 && Math.abs(u.x - px) < 4.5) close += 1;
+      units.forEach((o, j) => { if (j !== i && o.alive && Math.abs(o.z - u.z) < 6 && Math.abs(o.x - u.x) < 2.2) {
+        // tagli aggressivi che a volte falliscono: due volanti che si toccano forte si schiantano
+        if (Math.abs(o.z - u.z) < 3.8 && Math.abs(o.x - u.x) < 1.6 && Math.abs(u.vx - o.vx) > 2.6) { u.alive = o.alive = false; emit(ctx, 'policeCrash', { unit: u }); }
+        else u.vx += Math.sign(u.x - o.x || 1) * dt * 6; } });
+      u.x += u.vx * dt;
+      if (u.x < xMin || u.x > xMax) { u.x = Math.max(xMin, Math.min(xMax, u.x)); u.vx *= -.2; }
+      u.mesh.rotation.y = -Math.atan2(u.vx, Math.max(u.speed, 5)); // orientata dalla SUA velocità
+      if (tn.hit && u.speed > 8) { u.alive = false; emit(ctx, 'policeCrash', { unit: u }); } // si schianta nel traffico
+      // contatto col giocatore
+      u.hitCd -= dt;
+      if (Math.abs(u.z) < 4.2 && Math.abs(u.x - px) < 2) {
+        close += 1.5;
+        if (u.hitCd <= 0) {
+          u.hitCd = .7; const rel = Math.abs(u.speed - pSpeed) + Math.abs(u.vx) * 2;
+          emit(ctx, 'damage', { amount: Math.min(14, 2 + rel * .5) * (.6 + heat * .15), source: 'police' });
+          emit(ctx, 'policeHit', { side: Math.sign(px - u.x) || 1, push: u.vx });
+          if (u.z > 0) { p.speed = Math.max(0, pSpeed * .8); u.speed = Math.max(u.speed, pSpeed * .85); } // ti taglia la strada
+          else p.speed = Math.min(pSpeed + 2, pSpeed * 1.04);
+          if (p.x != null) p.x += Math.sign(px - u.x || 1) * Math.min(1.2, .3 + Math.abs(u.vx) * .25);
+        }
+        u.x += Math.sign(u.x - px || 1) * dt * 3; u.vx *= .6;
+      } else if (Math.abs(u.z) < 8 && Math.abs(u.x - px) < 4.6) close += 1;
     }
     u.mesh.position.set(u.x, 0, u.z * f + off);
   });
   for (let i = units.length - 1; i >= 0; i--) {
     const u = units[i];
-    if (u.z < -140 || u.z > 220 || u.crash > 4) { unitsRoot.remove(u.mesh); units.splice(i, 1); }
+    if (u.z < -140 || u.z > 260 || u.crash > 6) { unitsRoot.remove(u.mesh); units.splice(i, 1); }
   }
 
   // posti di blocco e chiodi

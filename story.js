@@ -26,7 +26,7 @@
  *   'missionProgress' {progress}, 'missionComplete', 'missionFailed' {reason},
  *   'chapterComplete' {chapter, unlockedCars:[ids]}, 'storyComplete'
  *
- * Storia: 6 capitoli x 2 missioni (2-3 min) ≈ 30-40 min, colpo di scena a fine capitolo, retry istantaneo.
+ * Storia: 6 capitoli x 2 missioni (2-3 min) ≈ 30-40 min, colpi di scena solo nei cap. 3, 5 e nel finale, retry istantaneo.
  * Tipi missione: distance, escape, delivery, timetrial, survive.
  * Salvataggio localStorage 'tratta_story_v2': {unlocked, best, cars:[ids], car}
  * Tutto è finzione da videogioco, stile cartoon.
@@ -36,7 +36,8 @@ const SAVE_KEY = 'tratta_story_v2';
 
 export const PROTAGONIST = {
   name: 'Nico "Ruota" Santoro',
-  bio: 'L\'autista più veloce della città. Guida per la banda "I Gatti Neri": lui non entra mai, aspetta col motore acceso.'
+  bio: 'L\'autista più veloce di Napoli. Guida per i Gatti Neri di Zio Tano solo per ripagare il debito di suo fratello Dario, morto tre anni fa. Lui non entra mai: aspetta col motore acceso.',
+  motive: 'Ripagare a Zio Tano i 200.000 € lasciati da Dario, prima che si prenda la trattoria di mamma.'
 };
 
 export const ENVS = {
@@ -58,50 +59,143 @@ export const CARS = [
   { id: 'interceptor', name: 'Interceptor Fantasma', type: 'supercar', accel: 10, topSpeed: 350, grip: 9, handling: 9, unlock: 8, color: '#111111' }
 ];
 
-export const CHAPTERS = [
-  { title: 'Cap. 1 — Il Colpo', env: 'city',
-    intro: '«Tre minuti, Ruota. Non uno di più.»<br>Zio Tano scende con la banda. Io resto col motore acceso davanti alla Banca d\'Oro.<br>Allarme. Sirene. «VAI!»',
-    outro: 'Al covo apriamo i sacchi.<br>«...Sono vuoti.» Zio Tano mi fissa.<br>«Qualcuno ci ha venduti, Ruota. E tu eri l\'unico fuori.»',
+// Prologo: chi sei e perché guidi. Cutscene 'intro' (cinema.js) prima del Cap. 1.
+export const PROLOGUE = {
+  title: 'Prologo — Il Debito', env: 'city', time: 'night', place: 'Trattoria Santoro, Napoli. Chiusura.',
+  lines: [
+    { who: 'nico', text: 'Tre anni fa mio fratello Dario è finito fuori strada sulla Domiziana. Guidava per Zio Tano.' },
+    { who: 'nico', text: 'L\'auto l\'hanno ripescata. Lui no.' },
+    { who: 'tano', text: 'Bella trattoria. Tua madre fa ancora il ragù la domenica?' },
+    { who: 'nico', text: 'Dimmi quanto, Tano.' },
+    { who: 'tano', text: 'Duecentomila. Dario me li doveva. Ora li devi tu.' },
+    { who: 'tano', text: 'Oppure questo posto diventa mio. Coi tavoli e con le sedie.' },
+    { who: 'nico', text: 'Un anno. Guido per te un anno, e siamo pari.' },
+    { who: 'tano', text: 'Lo diceva pure lui, guagliò.' }
+  ]
+};
+
+const L = (who, text) => ({ who, text });
+const NAMES = { nico: 'Nico', tano: 'Zio Tano', lola: 'Lola', bruni: 'Bruni', dario: 'Dario', serpe: 'Il Serpe', radio: 'Radio' };
+const toHtml = lines => lines.map(l => l.who === 'nico' ? '<i>' + l.text + '</i>' : '<b>' + NAMES[l.who] + ':</b> ' + l.text).join('<br>');
+
+// Ritmo: i colpi di scena veri arrivano solo nei cap. 3 (Bruni) e 5 (Dario), più il finale.
+// Gli altri capitoli servono ad affezionarsi a Tano, Lola e alla memoria di Dario.
+// time: 'night' | 'day' | 'dusk' — il gameplay usa la stessa ora della cutscene.
+const RAW = [
+  { title: 'Cap. 1 — Il Colpo', env: 'city', time: 'night', place: 'Banca d\'Oro, 02:47',
+    introLines: [
+      L('tano', 'Tre minuti, Ruota. Non uno di più.'),
+      L('nico', 'Ne bastano due. Tu pensa a non inciampare.'),
+      L('lola', 'Telecamere spente. Avete novanta secondi di buio, ragazzi.'),
+      L('tano', 'Sentito? Pure la ragazzina mi mette fretta.'),
+      L('nico', 'Sirene. In anticipo. Sali, Tano, sali!')
+    ],
+    outroLines: [
+      L('tano', 'Ah, che serata! Come ai vecchi tempi.'),
+      L('lola', 'Ai vecchi tempi avevi meno pancia, Tano.'),
+      L('tano', 'Ruota, quella curva sul lungomare... Dario la faceva uguale. Col freno a mano.'),
+      L('nico', 'Me l\'ha insegnata lui. Avevo quindici anni.'),
+      L('tano', 'Tieni. Diecimila. Ne mancano centonovanta.')
+    ],
     missions: [
-      { type: 'escape',  text: 'Fuga dalla banca: semina le volanti', heatStart: 0.9, difficulty: 2, policeLevel: 2 },
-      { type: 'delivery', text: 'Porta la banda al covo: 6 km in 170 s', target: 6000, time: 170, difficulty: 2, policeLevel: 1 }
+      { type: 'escape',  text: 'Semina le volanti: allontanati finché le stelle si spengono', heatStart: 0.4, difficulty: 2, policeLevel: 2 },
+      { type: 'delivery', text: 'Porta la banda al covo: 6 km in 2:50', target: 6000, time: 170, difficulty: 2, policeLevel: 1 }
     ] },
-  { title: 'Cap. 2 — Il Pacco', env: 'city',
-    intro: '«Vuoi dimostrare che sei pulito? Porta questo pacco ai Serpenti. Non aprirlo.»<br>Il pacco ticchetta. Ottimo.',
-    outro: 'I Serpenti aprono il pacco. Dentro: un localizzatore GPS.<br>«Non è contrabbando, idiota. È un\'esca.»<br>Qualcuno ci stava seguendo. Da sempre.',
+  { title: 'Cap. 2 — Il Pacco', env: 'city', time: 'day', place: 'Porto di Napoli, mezzogiorno',
+    introLines: [
+      L('lola', 'Quindi tu sei il fratello. Hai la stessa faccia da santo.'),
+      L('nico', 'Lui era il santo. Io guido e basta.'),
+      L('tano', 'Questo va ai Serpenti, al molo 9. Non aprirlo. Non scuoterlo.'),
+      L('lola', 'E non frenare troppo forte. Così, per curiosità.')
+    ],
+    outroLines: [
+      L('serpe', 'Puntuale. Tano sa scegliere gli autisti.'),
+      L('nico', 'Contato, firmato, me ne vado.'),
+      L('lola', 'Offro io. Una sfogliatella per l\'eroe del molo.'),
+      L('lola', 'Dario mi portava sempre qui. Diceva che un giorno avrebbe aperto un posto suo.'),
+      L('nico', 'Ce l\'aveva già, un posto. La trattoria di mamma.')
+    ],
     missions: [
-      { type: 'delivery', text: 'Consegna il pacco al porto: 7 km in 180 s', target: 7000, time: 180, difficulty: 3, policeLevel: 2 },
-      { type: 'survive', text: 'Agguato dei Serpenti! Resisti 120 s', time: 120, difficulty: 4, policeLevel: 2 }
+      { type: 'delivery', text: 'Consegna il pacco al porto: 7 km in 3:00', target: 7000, time: 180, difficulty: 3, policeLevel: 1 },
+      { type: 'survive', text: 'I Serpenti ti mettono alla prova: resisti 2:00', time: 120, difficulty: 4, policeLevel: 2 }
     ] },
-  { title: 'Cap. 3 — Fango', env: 'jungle',
-    intro: '«Il rifugio nella giungla. Lì nessuno ci trova.» dice Lola, la nostra hacker.<br>Strada di fango. Liane. Fari alle spalle.',
-    outro: 'Il rifugio è circondato. Un uomo in divisa scende dalla jeep.<br>È il Commissario Bruni.<br>Zio Tano lo saluta: «Puntuale, Commissario.»<br><b>Il poliziotto è sul nostro libro paga.</b>',
+  { title: 'Cap. 3 — Fango', env: 'jungle', time: 'dusk', place: 'Il rifugio nella giungla, al tramonto',
+    introLines: [
+      L('tano', 'Si cambia aria. Il rifugio è oltre il fiume.'),
+      L('lola', 'Lì il segnale non arriva. Né il mio, né quello della polizia.'),
+      L('nico', 'Strada di fango, di sera. Che bel regalo.'),
+      L('tano', 'Dario ci veniva a pescare. Diceva che era l\'unico posto silenzioso al mondo.')
+    ],
+    outroLines: [
+      L('nico', 'Una jeep davanti al rifugio. Un uomo in divisa che fuma.'),
+      L('bruni', 'Commissario Bruni. Tu devi essere Santoro.'),
+      L('tano', 'Puntuale, Commissario. La busta è sul sedile.'),
+      L('bruni', 'Guidi meglio di tuo fratello. E lui guidava bene. Fino all\'ultimo.'),
+      L('nico', 'Bruni è sul libro paga di Tano. E di Dario sa qualcosa che io non so.')
+    ],
     missions: [
-      { type: 'timetrial', text: 'Attraversa la giungla: 6 km in 160 s', target: 6000, time: 160, difficulty: 4, policeLevel: 1 },
-      { type: 'escape', text: 'Pick-up dei Serpenti alle spalle: seminali', heatStart: 0.9, difficulty: 5, policeLevel: 3 }
+      { type: 'timetrial', text: 'Arriva al rifugio: 6 km di fango in 2:40', target: 6000, time: 160, difficulty: 4, policeLevel: 0 },
+      { type: 'escape', text: 'Pick-up dei Serpenti alle spalle: seminali', heatStart: 0.5, difficulty: 5, policeLevel: 2 }
     ] },
-  { title: 'Cap. 4 — Doppio Gioco', env: 'jungle',
-    intro: '«Bruni ci copre,» dice Tano. «Ma vuole la sua parte. Stanotte.»<br>Poi Bruni chiama i rinforzi. Contro di noi.',
-    outro: 'Bruni non lavorava per Tano. Lavorava per i Serpenti.<br>Tano è preso. Lola sparisce con la cassa.<br>Un SMS: <i>«Deserto. Vieni solo. — L»</i>',
+  { title: 'Cap. 4 — Il Prezzo', env: 'jungle', time: 'night', place: 'Giungla, notte fonda',
+    introLines: [
+      L('nico', 'Tano, quella notte. Bruni c\'era, vero?'),
+      L('tano', 'C\'ero pure io, Ruota. Ho visto l\'auto nel fiume. Ho pianto come un fesso.'),
+      L('tano', 'Tuo fratello era l\'unico che mi chiamava zio sul serio.'),
+      L('lola', 'Fari dietro la collina. Tanti. Troppi.'),
+      L('tano', 'Bruni vuole il doppio. E stanotte se lo viene a prendere.')
+    ],
+    outroLines: [
+      L('tano', 'Fermati qui. Scendo io.'),
+      L('nico', 'Ti prendono, Tano.'),
+      L('tano', 'Vecchio sono. In cella si mangia male, ma si dorme.'),
+      L('tano', 'Il debito è chiuso, Nico. Di\' a tua madre che il ragù me lo deve ancora.'),
+      L('lola', 'Lo hanno preso. E io ho un messaggio: «Deserto. Vieni solo.»')
+    ],
     missions: [
-      { type: 'survive', text: 'Bruni ti tradisce: resisti 140 s', time: 140, difficulty: 6, policeLevel: 3 },
-      { type: 'distance', text: 'Esci dalla giungla: 7 km', target: 7000, difficulty: 6, policeLevel: 3 }
+      { type: 'survive', text: 'Le volanti di Bruni vi braccano: resisti 2:20', time: 140, difficulty: 6, policeLevel: 3 },
+      { type: 'distance', text: 'Porta Lola fuori dalla giungla: 7 km', target: 7000, difficulty: 6, policeLevel: 2 }
     ] },
-  { title: 'Cap. 5 — Mare di Sabbia', env: 'desert',
-    intro: 'Dune. Cactus. 45 gradi.<br>Lola è all\'oasi. «Ti spiego tutto, Ruota. Ma prima seminali.»',
-    outro: '«Il colpo era finto fin dall\'inizio,» dice Lola. «I sacchi vuoti, il GPS, Bruni... tutto per far cadere Tano.»<br>«Chi l\'ha organizzato?»<br>Lei sorride. «Tuo fratello.»',
+  { title: 'Cap. 5 — Mare di Sabbia', env: 'desert', time: 'day', place: 'Deserto, 45 gradi',
+    introLines: [
+      L('lola', 'Chi ti ha scritto sa cose che sapevamo solo noi. Io vengo con te.'),
+      L('nico', 'Hai paura?'),
+      L('lola', 'Di morire no. Di avere ragione, sì.'),
+      L('nico', 'Pattuglie sulle dune. Bruni non si arrende.')
+    ],
+    outroLines: [
+      L('nico', 'All\'oasi c\'è un\'auto. La sua auto. Quella del fiume, rimessa a nuovo.'),
+      L('dario', 'Ciao, fratellino. Hai fatto presto. Come sempre.'),
+      L('nico', 'Tre anni. Mamma ha pianto tre anni. Io ho pagato il tuo debito.'),
+      L('dario', 'Lo so. Bruni mi ha tirato fuori dall\'acqua. In cambio, lavoro per lui.'),
+      L('lola', 'Allora anche Tano... l\'hai venduto tu.'),
+      L('dario', 'Tano mi avrebbe fatto ammazzare. Ho scelto di vivere. Ora scegli tu, Nico.')
+    ],
     missions: [
-      { type: 'escape', text: 'Pattuglie sulle dune: seminale', heatStart: 1.0, difficulty: 7, policeLevel: 4 },
-      { type: 'delivery', text: 'Raggiungi l\'oasi: 7 km in 170 s', target: 7000, time: 170, difficulty: 7, policeLevel: 3 }
+      { type: 'escape', text: 'Pattuglie sulle dune: seminale', heatStart: 0.6, difficulty: 7, policeLevel: 3 },
+      { type: 'delivery', text: 'Raggiungi l\'oasi: 7 km in 2:50', target: 7000, time: 170, difficulty: 7, policeLevel: 2 }
     ] },
-  { title: 'Cap. 6 — L\'Ultima Tratta', env: 'city',
-    intro: 'Dario. Mio fratello. Morto da tre anni... o così credevo.<br>Ha preso il posto di Tano. E vuole me alla guida per il colpo vero: il Caveau Centrale.',
-    outro: 'Fuori città, all\'alba. Dario conta i soldi. «Insieme, come una volta.»<br>Gli lancio le chiavi... di un\'auto vuota.<br>La radio gracchia: <i>«Qui Bruni. Lo abbiamo, Ruota. Ottimo lavoro, agente Santoro.»</i><br><b>Ero sotto copertura. Da sempre.</b> FINE.',
+  { title: 'Cap. 6 — L\'Ultima Tratta', env: 'city', time: 'night', place: 'Caveau Centrale, 03:10',
+    introLines: [
+      L('dario', 'L\'ultimo lavoro per Bruni: il Caveau Centrale. Poi siamo liberi. Tutti e due.'),
+      L('nico', 'Libero eri già. Eri morto.'),
+      L('lola', 'Il registro dei pagamenti di Bruni è nel caveau. Se lo prendiamo, Tano esce.'),
+      L('nico', 'Allora guido io. Come una volta, Dario. Ma stavolta decido io dove si va.')
+    ],
+    outroLines: [
+      L('dario', 'Alba. Il lungomare. Ti ricordi quando mi rubavi la Vespa?'),
+      L('nico', 'Te la riportavo sempre col pieno.'),
+      L('lola', 'Il registro è in Procura. Bruni è finito. Tano esce tra un mese.'),
+      L('radio', 'A tutte le unità: arrestare il Commissario Bruni.'),
+      L('dario', 'E io? Per tutti sono morto.'),
+      L('nico', 'Allora resta morto per tutti. Tranne che per mamma. Domenica c\'è il ragù.')
+    ],
     missions: [
-      { type: 'timetrial', text: 'Fuga dal Caveau: 8 km in 180 s', target: 8000, time: 180, difficulty: 9, policeLevel: 5 },
-      { type: 'survive', text: 'Ultimo inseguimento: 150 s', time: 150, difficulty: 10, policeLevel: 5 }
+      { type: 'timetrial', text: 'Fuga dal Caveau: 8 km in 3:00', target: 8000, time: 180, difficulty: 9, policeLevel: 4 },
+      { type: 'survive', text: 'Bruni in persona ti insegue: resisti 2:30', time: 150, difficulty: 10, policeLevel: 5 }
     ] }
 ];
+export const CHAPTERS = RAW.map(c => Object.assign(c, { intro: toHtml(c.introLines), outro: toHtml(c.outroLines) }));
 
 const S = {
   ctx: null, root: null, hud: null, overlay: null, menu: null,
@@ -233,7 +327,7 @@ function startChapterNow(i) {
   const c = CHAPTERS[i];
   applyEnv(c.env);
   applyCar(S.save.car);
-  emit('chapterIntro', { chapter: i, title: c.title, env: c.env });
+  emit('chapterIntro', { chapter: i, title: c.title, env: c.env, time: c.time });
   showOverlay(c.title, c.intro + '<br><br><small style="opacity:.7">📍 ' + ENVS[c.env].name + ' · 🚗 ' + carById(S.save.car).name + '</small>', 'Guida', nextMission);
 }
 
@@ -245,7 +339,7 @@ function nextMission() {
   S.m = m; S.t = 0; S.dist = 0; S.lastZ = p.z || 0; S.heat = m.heatStart || 0; S.calmT = 0;
   S.active = true;
   emit('missionStart', { mode: 'story', chapter: S.chapter, mission: S.mission, type: m.type, difficulty: m.difficulty, policeLevel: m.policeLevel,
-    trafficDensity: Math.min(1, 0.2 + m.difficulty * 0.08), heat: S.heat, env: c.env, car: carById(S.save.car) });
+    trafficDensity: Math.min(1, 0.2 + m.difficulty * 0.08), heat: S.heat, env: c.env, time: c.time, car: carById(S.save.car) });
   renderHud();
 }
 

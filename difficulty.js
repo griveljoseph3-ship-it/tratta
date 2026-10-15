@@ -19,6 +19,7 @@
  * Il modulo scrive player.health (0..100) ma non ferma il gioco: lo decide chi integra.
  */
 
+import { rand } from './rng.js';
 export const PRESETS = [
   { name: 'Facile',    density: 0.6, speedMul: 0.85, aiAggro: 0.3, laneChange: 0.15, damageMul: 0.6, ramp: 0.004, maxCars: 14 },
   { name: 'Normale',   density: 1.0, speedMul: 1.0,  aiAggro: 0.5, laneChange: 0.3,  damageMul: 1.0, ramp: 0.007, maxCars: 22 },
@@ -51,7 +52,7 @@ function makeVehicle(THREE, truck) {
   const g = new THREE.Group();
   const colors = [0xb0122b, 0x1d4ed8, 0xe5e7eb, 0x111827, 0x9ca3af, 0x0f766e, 0xf59e0b];
   const L = truck ? 9 : 4.3, W = truck ? 2.5 : 1.85, H = truck ? 3.2 : 1.35;
-  const paint = new THREE.MeshStandardMaterial({ color: colors[(Math.random() * colors.length) | 0], metalness: 0.6, roughness: 0.35 });
+  const paint = new THREE.MeshStandardMaterial({ color: colors[(rand() * colors.length) | 0], metalness: 0.6, roughness: 0.35 });
   const body = new THREE.Mesh(new THREE.BoxGeometry(W, H * 0.55, L), paint);
   const shared = globalThis.tratta?.makeCar?.(truck ? 'truck' : 'traffic');
   if (shared) g.add(shared);
@@ -79,26 +80,42 @@ export function init(ctx) {
 }
 export function reset(ctx = S.ctx) {
   for (const v of S.vehicles) ctx?.scene?.remove(v.mesh);
-  S.vehicles = []; S.elapsed = 0; S.combo = 0; S.score = 0; S.destroyed = false; S.invuln = 0; S.lastLvl = 1;
+  S.vehicles = []; S.seeded = false; newRunProfile(); S.elapsed = 0; S.combo = 0; S.score = 0; S.destroyed = false; S.invuln = 0; S.lastLvl = 1;
   if (ctx?.player) ctx.player.health = 100;
   renderHud();
 }
 
-function spawn(ctx, P) {
+// Profilo della corsa: cambia ogni partita (seme in rng.js) -> ondate di traffico, mix di veicoli, eventi.
+const RUN = { phase: 0, waveLen: 30, truckP: .2, eventT: 20, ev: null };
+function newRunProfile() { Object.assign(RUN, { phase: rand() * 6.28, waveLen: 18 + rand() * 30, truckP: .1 + rand() * .2, eventT: 12 + rand() * 18, ev: null }); }
+function addVehicle(ctx, P, lane, rel, speed, truck) {
   const { THREE, scene, player } = ctx; const lanes = lanesOf(ctx); const pp = pPos(player);
-  const truck = Math.random() < 0.22;
+  const z = pp.z + fwd(ctx) * rel;
+  if (S.vehicles.some(o => (o.lane === lane || o.targetLane === lane) && Math.abs(o.mesh.position.z - z) < 16)) return null;
   const v = makeVehicle(THREE, truck);
-  const lane = (Math.random() * lanes.length) | 0;
-  const ahead = Math.random() < 0.85;
-  const dist = ahead ? 140 + Math.random() * 120 : -(40 + Math.random() * 30);
-  const z = pp.z + fwd(ctx) * dist;
-  if (S.vehicles.some(o => o.lane === lane && Math.abs(o.mesh.position.z - z) < 14)) return;
-  const base = (truck ? 18 : 24 + Math.random() * 14) * P.speedMul;
-  Object.assign(v, { lane, targetLane: lane, x: lanes[lane], speed: base, cruise: base, signal: 0, signalT: 0,
-    blink: 0, nearDone: false, hit: false, think: Math.random() * 2 });
-  v.mesh.position.set(v.x, 0, z); if (fwd(ctx) < 0) v.mesh.rotation.y = 0; else v.mesh.rotation.y = Math.PI;
-  scene.add(v.mesh); S.vehicles.push(v);
+  Object.assign(v, { lane, targetLane: lane, x: lanes[lane], speed, cruise: speed, signal: 0, signalT: 0,
+    blink: 0, nearDone: false, hit: false, think: rand() * 2, x0: 0 });
+  v.mesh.position.set(v.x, 0, z); v.mesh.rotation.y = fwd(ctx) < 0 ? 0 : Math.PI;
+  scene.add(v.mesh); S.vehicles.push(v); return v;
 }
+function spawn(ctx, P, rel) {
+  const lanes = lanesOf(ctx); const truck = rand() < RUN.truckP;
+  const lane = truck ? (rand() < .7 ? 0 : 1) : (rand() * lanes.length) | 0; // camion a destra... cioè corsie lente
+  const pS = ctx.player.speed || 20;
+  if (rel == null) rel = rand() < 0.88 ? 90 + rand() * 130 : -(35 + rand() * 25);
+  // civili più lenti del giocatore: li raggiungi e li sorpassi (corsie esterne più veloci)
+  const laneMul = 0.8 + lane * 0.1;
+  const base = (truck ? 15 + rand() * 4 : 17 + rand() * 9) * laneMul * P.speedMul;
+  return addVehicle(ctx, P, lane, rel, rel < 0 ? Math.max(base, pS * 1.05) : base, truck);
+}
+function spawnEvent(ctx, P) {
+  const lanes = lanesOf(ctx), n = lanes.length, type = ['convoy', 'jam', 'speeder', 'convoy', 'jam'][(rand() * 5) | 0];
+  const rel = 170 + rand() * 40;
+  if (type === 'convoy') { const gap = (rand() * n) | 0; for (let l = 0; l < n; l++) if (l !== gap) addVehicle(ctx, P, l, rel + rand() * 6, 15 * P.speedMul, l < 2 && rand() < .6); flash('Camion in carovana più avanti!', '#ffd23f'); }
+  else if (type === 'jam') { for (let k = 0; k < 6; k++) addVehicle(ctx, P, (rand() * n) | 0, rel + k * 9, 9 + rand() * 4, false); flash('Coda più avanti: attento!', '#ffd23f'); }
+  else { const v = addVehicle(ctx, P, n - 1, -45, (ctx.player.speed || 20) + 12, false); if (v) v.cruise = v.speed; }
+}
+export function getVehicles() { return S.vehicles.map(v => ({ x: v.x, z: v.mesh.position.z, speed: v.speed, L: v.L })); }
 
 function aheadGap(v, lane, ctx) {
   const f = fwd(ctx); let best = Infinity, who = null;
@@ -106,6 +123,8 @@ function aheadGap(v, lane, ctx) {
     const d = (o.mesh.position.z - v.mesh.position.z) * f;
     if (d > 0 && d < best) { best = d; who = o; }
   }
+  const pl = ctx.player; // anche il giocatore è un ostacolo: i civili non ti tamponano
+  if (pl && Math.abs((pl.x ?? 0) - lanesOf(ctx)[lane]) < 2.4) { const d = ((pl.z ?? 0) - v.mesh.position.z) * f; if (d > 0 && d < best) { best = d; who = { speed: pl.speed || 0 }; } }
   return { gap: best, who };
 }
 
@@ -119,8 +138,11 @@ export function update(dt, ctx = S.ctx) {
 
   // spawn
   const maxCars = Math.round(P.maxCars * Math.min(2, S.intensity));
-  S.spawnT -= dt * P.density * S.intensity * (0.6 + Math.min(1.5, (player.speed || 0) / 40));
-  if (S.spawnT <= 0 && S.vehicles.length < maxCars) { spawn(ctx, P); S.spawnT = 0.9 + Math.random() * 0.6; }
+  const wave = 0.65 + 0.55 * Math.sin(S.elapsed / RUN.waveLen * 6.28 + RUN.phase);
+  S.spawnT -= dt * P.density * S.intensity * wave * (0.6 + Math.min(1.5, (player.speed || 0) / 40));
+  if (S.spawnT <= 0 && S.vehicles.length < maxCars) { spawn(ctx, P); S.spawnT = 0.7 + rand() * 0.8; }
+  RUN.eventT -= dt; if (RUN.eventT <= 0) { RUN.eventT = 22 + rand() * 25; if (!ctx.state?.cinema) spawnEvent(ctx, P); }
+  if (!S.seeded) { S.seeded = true; for (let k = 0; k < 9; k++) spawn(ctx, P, 25 + k * 22 + rand() * 10); }
 
   const pW = 1.9, pL = 4.4;
   for (let i = S.vehicles.length - 1; i >= 0; i--) {
@@ -133,9 +155,9 @@ export function update(dt, ctx = S.ctx) {
     v.speed += Math.sign(want - v.speed) * Math.min(Math.abs(want - v.speed), (braking ? 14 : 5) * dt);
     v.think -= dt;
     if (v.signal === 0 && v.think <= 0) {
-      v.think = 1.5 + Math.random() * 3;
-      if ((braking || Math.random() < P.laneChange * 0.4) && !v.truck || Math.random() < P.laneChange * 0.15) {
-        const dir = Math.random() < 0.5 ? -1 : 1; const nl = v.lane + dir;
+      v.think = 1.5 + rand() * 3;
+      if ((braking || rand() < P.laneChange * 0.4) && !v.truck || rand() < P.laneChange * 0.15) {
+        const dir = rand() < 0.5 ? -1 : 1; const nl = v.lane + dir;
         if (nl >= 0 && nl < lanes.length && aheadGap(v, nl, ctx).gap > 18 &&
             !S.vehicles.some(o => o !== v && o.lane === nl && Math.abs(o.mesh.position.z - m.position.z) < 10)) {
           v.signal = dir; v.signalT = 1.4 - P.aiAggro * 0.9; // leggenda: preavviso più corto
