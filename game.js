@@ -29,10 +29,10 @@ document.body.prepend(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0xc9926e, 0.0019);
-const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 3000);
+const camera = new THREE.PerspectiveCamera(62, innerWidth / innerHeight, 0.1, 1200);
 
 // Cielo (Sky shader) + una luce solare + emisfero. Niente bloom.
-const sky = new Sky(); sky.scale.setScalar(4000); scene.add(sky);
+const sky = new Sky(); sky.scale.setScalar(1000); scene.add(sky);
 const su = sky.material.uniforms; su.mieCoefficient.value = 0.004; su.mieDirectionalG.value = 0.8;
 const pmrem = new THREE.PMREMGenerator(renderer);
 const hemi = new THREE.HemisphereLight(0xdfeaff, 0x4a4a3a, 1.1); scene.add(hemi);
@@ -113,10 +113,10 @@ const dummy = new THREE.Object3D();
 const rnd = (a, b) => a + Math.random() * (b - a), pick = a => a[Math.random() * a.length | 0];
 let ENV = 'city';
 const ENV_LOOK = {
-  city: { fog: 0xc8d3dc, density: .0016, sun: [72, 200], hemi: [0xdfeaff, 0x4a4a3a, 1.1], sunC: 0xfff0dc, sunI: 2.4, road: 'asphalt', turb: 6, ray: 1.6 },
+  city: { fog: 0xc8d3dc, density: .0030, sun: [72, 200], hemi: [0xdfeaff, 0x4a4a3a, 1.1], sunC: 0xfff0dc, sunI: 2.4, road: 'asphalt', turb: 6, ray: 1.6 },
   jungle: { fog: 0x9fb39a, density: .0045, sun: [55, 150], hemi: [0xcfe6c0, 0x2a3a1e, .9], sunC: 0xfff3d0, sunI: 2.0, road: 'mud', turb: 10, ray: 2.5 },
-  desert: { fog: 0xe8d6b8, density: .0013, sun: [40, 170], hemi: [0xfff0d8, 0x8a6a40, 1.15], sunC: 0xfff2d6, sunI: 3.0, road: 'sand', turb: 4, ray: 1 },
-  mountain: { fog: 0xb8c4d0, density: .0022, sun: [48, 210], hemi: [0xdde8ff, 0x3c4232, 1.0], sunC: 0xfff4e4, sunI: 2.6, road: 'asphalt', turb: 3, ray: 1.2 },
+  desert: { fog: 0xe8d6b8, density: .0026, sun: [40, 170], hemi: [0xfff0d8, 0x8a6a40, 1.15], sunC: 0xfff2d6, sunI: 3.0, road: 'sand', turb: 4, ray: 1 },
+  mountain: { fog: 0xb8c4d0, density: .0032, sun: [48, 210], hemi: [0xdde8ff, 0x3c4232, 1.0], sunC: 0xfff4e4, sunI: 2.6, road: 'asphalt', turb: 3, ray: 1.2 },
 };
 const sunDir = new THREE.Vector3();
 function setEnvironment(env) {
@@ -290,7 +290,7 @@ on('storyComplete', () => { ctx.state.running = false; });
 function resetRun() {
   ctx.state.seed = RNG.reseed(ctx.debug.seed); randomizeRoad(); shortcuts.length = 0; nextSC = -300 - RNG.rand() * 200; prevX = road.laneX(1);
   buildPlayer(); Object.assign(player, { y: 0, vy: 0, air: false, airT: 0, spin: 0, spinRate: 0, spinRecover: false, speed: 14, x: road.laneX(1), z: 0, h: 0, steer: 0, lane: 1, nitro: 1, distance: 0, maxHealth: 100, health: 100, gear: 2, shiftT: 0, drift: 0 });
-  ctx.state.time = 0; ctx.state.running = true; shake = 0;
+  ctx.state.time = 0; ctx.state.running = true; shake = 0; lastSector = null;
   Diff?.reset(modCtx); Police?.reset(); ui.setHeat(0);
 }
 
@@ -376,8 +376,8 @@ function updatePlayer(dt) {
     else { player.y = yR; player.vy = vyRoad; }
   }
   const latAcc = (yaw + kap(player.z) * spd) * spd;
-  player.roll += (THREE.MathUtils.clamp(latAcc * .012, -.09, .09) - player.roll) * Math.min(1, dt * 5);
-  player.pitch += (THREE.MathUtils.clamp(-acc * .006, -.05, .05) - player.pitch) * Math.min(1, dt * 4);
+  player.roll += (THREE.MathUtils.clamp(latAcc * .014, -.12, .12) - player.roll) * Math.min(1, dt * 5);
+  player.pitch += (THREE.MathUtils.clamp(-acc * .008, -.07, .07) - player.pitch) * Math.min(1, dt * 4);
   const m = player.mesh; m.position.set(player.x, player.y - yR, player.z); m.rotation.y = player.h + player.drift * -player.steer * .25 + (player.spin || 0);
   if (player.drift > .4 && player.speed > 8 && !player.air) emitDust(player.x, player.z + 1.8, player.drift);
   const airPitch = player.air ? Math.atan2(player.vy, spd) - Math.atan(Road.slope(sR)) : 0;
@@ -403,32 +403,54 @@ function bend() {
 function unbend() { for (let i = 0; i < bent.length; i += 7) { const o = bent[i]; o.position.x = bent[i + 1]; o.position.y = bent[i + 2]; o.position.z = bent[i + 3]; o.rotation.y = bent[i + 4]; o.rotation.x = bent[i + 5]; o.rotation.order = bent[i + 6]; } bent.length = 0; }
 
 const camPos = new THREE.Vector3(), look = new THREE.Vector3(), camBase = new THREE.Vector3(0, 3, 8), camVel = new THREE.Vector3(); let camT = 0;
+// Camera: 'chase' (dietro) o 'hood' (cofano/abitacolo). Sensazione di velocità: FOV, vibrazione strada, guardare dentro la curva.
+let camMode = localStorage.getItem('tratta-cam') || 'chase';
+function toggleCam() { camMode = camMode === 'chase' ? 'hood' : 'chase'; localStorage.setItem('tratta-cam', camMode); ui.flash(camMode === 'hood' ? 'Visuale cofano' : 'Visuale esterna', 900); camBase.copy(camPos); camVel.set(0, 0, 0); }
+addEventListener('keydown', e => { if (e.code === 'KeyC') toggleCam(); });
+const lookOff = { v: 0 };
 function updateCamera(dt) {
-  const sp = player.speed, nit = keys.Space && player.nitro > 0 && (keys.ArrowUp || keys.KeyW);
-  camera.fov += ((60 + sp * .22 + (nit ? 9 : 0) - (slowT > 0 ? 8 : 0)) - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix();
+  const sp = player.speed, nit = keys.Space && player.nitro > 0 && (keys.ArrowUp || keys.KeyW), hood = camMode === 'hood';
+  const fovT = (hood ? 66 : 60) + sp * .3 + (nit ? 12 : 0) - (slowT > 0 ? 8 : 0);
+  camera.fov += (fovT - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix();
   const s = -player.z; Road.frame(s, player.x, BF); const wx = BF.x, wz = BF.z, wy = player.y ?? BF.y;
-  const ang = -BF.th + player.h * .35;
-  const dist = 7 + sp * .02, hgt = 2.5 + sp * .006;
-  const tx = wx + Math.sin(ang) * dist, tz = wz + Math.cos(ang) * dist;
-  camPos.set(tx, Math.max(wy, Road.y(s - dist)) + hgt, tz);
-  // molla a smorzamento critico (omega 9): segue senza oscillare né tremolare
-  const w = 9, kx = Math.min(dt, 1 / 30);
-  camBase.x += camVel.x * kx; camBase.y += camVel.y * kx; camBase.z += camVel.z * kx;
-  camVel.x += (-2 * w * camVel.x - w * w * (camBase.x - camPos.x)) * kx; camVel.y += (-2 * w * camVel.y - w * w * (camBase.y - camPos.y)) * kx; camVel.z += (-2 * w * camVel.z - w * w * (camBase.z - camPos.z)) * kx;
-  if (camBase.distanceToSquared(camPos) > 900) { camBase.copy(camPos); camVel.set(0, 0, 0); }
+  const head = -BF.th + player.h + (player.spin || 0) * (hood ? 1 : 0); // direzione dell'auto nel mondo (rotation.y)
+  // guardo dentro la curva: sterzo + curvatura davanti
+  lookOff.v += ((player.steer * 1.6 + THREE.MathUtils.clamp(Road.kappa(s + 20) * 260, -5, 5)) - lookOff.v) * Math.min(1, dt * 3);
+  if (hood) {
+    camPos.set(wx - Math.sin(head) * .2, wy + 1.22 + (player.pitch || 0) * 2, wz - Math.cos(head) * .2);
+    camBase.copy(camPos); camVel.set(0, 0, 0);
+  } else {
+    const ang = -BF.th + player.h * .35;
+    const dist = 7 + sp * .025, hgt = 2.4 + sp * .006;
+    camPos.set(wx + Math.sin(ang) * dist, Math.max(wy, Road.y(s - dist)) + hgt, wz + Math.cos(ang) * dist);
+    const w = 9, kx = Math.min(dt, 1 / 30); // molla a smorzamento critico
+    camBase.x += camVel.x * kx; camBase.y += camVel.y * kx; camBase.z += camVel.z * kx;
+    camVel.x += (-2 * w * camVel.x - w * w * (camBase.x - camPos.x)) * kx; camVel.y += (-2 * w * camVel.y - w * w * (camBase.y - camPos.y)) * kx; camVel.z += (-2 * w * camVel.z - w * w * (camBase.z - camPos.z)) * kx;
+    if (camBase.distanceToSquared(camPos) > 900) { camBase.copy(camPos); camVel.set(0, 0, 0); }
+  }
   camera.position.copy(camBase);
   camT += dt; if (shake > 0) { camera.position.x += Math.sin(camT * 47) * shake * .25; camera.position.y += Math.sin(camT * 61 + 1) * shake * .15; shake = Math.max(0, shake - dt * 2.5); }
-  if (sp > 45) camera.position.y += Math.sin(camT * 23) * (sp - 45) * .0006;
-  Road.frame(s + 14, player.x * .9, BF); look.set(BF.x, (wy + BF.y) / 2 + 1.2, BF.z); camera.lookAt(look);
+  // vibrazione della strada: cresce con la velocità, forte sulla banchina
+  const off = Math.abs(player.x) > road.halfWidth && !player.air, rum = (sp > 20 ? (sp - 20) * .0009 : 0) * (hood ? 1.6 : 1) + (off && sp > 5 ? .035 : 0);
+  if (rum) { camera.position.y += (Math.sin(camT * 71) * .6 + Math.sin(camT * 113) * .4) * rum; camera.position.x += Math.sin(camT * 89) * rum * .5; }
+  sky.position.copy(camera.position); // cielo agganciato alla camera (far plane 1200 m)
+  if (hood) { const fx = -Math.sin(head), fz = -Math.cos(head), rx = Math.cos(head), rz = -Math.sin(head); const L = lookOff.v * .5;
+    look.set(camera.position.x + fx * 20 + rx * L, camera.position.y - .4 + Road.slope(s) * 20, camera.position.z + fz * 20 + rz * L); }
+  else { Road.frame(s + 14, player.x * .9 + lookOff.v * .8, BF); look.set(BF.x, (wy + BF.y) / 2 + 1.2, BF.z); }
+  camera.lookAt(look);
+  if (hood) camera.rotateZ(-(player.roll || 0) * 1.5); // la carrozzeria rolla, e anche tu
+  player.mesh.visible = !hood || Math.abs(player.spin || 0) > .3; // in abitacolo non vedi la tua auto da fuori
   sun.position.set(wx + sunDir.x * 150, wy + sunDir.y * 150, wz + sunDir.z * 150); sun.target.position.set(wx, wy, wz);
 }
 
 
+let lastSector = null;
 const FIXED = 1 / 120; let acc = 0, steps = 0;
 const clock = new THREE.Clock(); let fpsAcc = 0, fpsN = 0;
 function step(dt) {
   try { Story?.update(dt, modCtx); } catch (e) { console.error(e); }
   if (ctx.state.running && !ctx.state.paused && !ctx.state.cinema) {
+    const sec = Road.sectorAt(-player.z); if (sec && sec !== lastSector) { if (lastSector) { ui.flash(sec.name, 1800); Audio.whoosh?.(); } lastSector = sec; }
     ctx.state.time += dt; updatePlayer(dt); updateShortcuts(dt); Modes.update(dt);
     if (ctx.debug.ffLeft > 0) { const j = Math.min(150, ctx.debug.ffLeft); player.z -= j; player.distance += j; ctx.debug.ffLeft -= j; }
     for (const m of [ctx.debug.noTraffic ? null : Diff, ctx.debug.noPolice ? null : Police]) { try { m?.update(dt, modCtx); } catch (e) { console.error(e); } }
@@ -448,7 +470,7 @@ function loop() {
   if (n > 1) for (let i = 0; i < n; i++) step(1 / 20);
   else { acc += dt; let k = 0; while (acc >= FIXED && k++ < 16) { step(FIXED); acc -= FIXED; } if (k >= 16) acc = 0; steps = k; }
   HUD.tick(raw, ctx.state.running && !ctx.state.paused && !ctx.state.cinema);
-  try { Audio.update({ rpm: player.rpm, speed: ctx.state.running && !ctx.state.paused ? player.speed : 0, throttle: !!(keys.ArrowUp || keys.KeyW), drift: player.drift, siren: ctx.state.running && !ctx.state.cinema ? Police?.nearest?.(player.x) : null, muted: !!ctx.state.cinema || !ctx.state.running }); } catch (e) {}
+  try { Audio.update({ rpm: player.rpm, speed: ctx.state.running && !ctx.state.paused ? player.speed : 0, throttle: !!(keys.ArrowUp || keys.KeyW), drift: player.drift, hood: camMode === 'hood', offroad: Math.abs(player.x) > road.halfWidth && !player.air, siren: ctx.state.running && !ctx.state.cinema ? Police?.nearest?.(player.x) : null, muted: !!ctx.state.cinema || !ctx.state.running }); } catch (e) {}
   updateDust(dt);
   if (player.mesh) { updateCamera(dt); updateScenery(player.z, dt); updateGlows(); updateNeon(player.z); }
   const P1 = performance.now();
@@ -559,6 +581,7 @@ document.querySelectorAll('[data-q]').forEach(b => b.onclick = () => { quality =
 $('ovRetry').onclick = () => ui.hide('over'); $('ovMenu').onclick = () => { ui.hide('over'); Story?.openMainMenu?.(); };
 HUD.init({ ctx, isTouch: IS_TOUCH, getDots });
 HUD.topButton('☰', 'Menu', () => { if (ctx.state.running) Story?.openMainMenu?.(); });
+HUD.topButton('🎥', 'Visuale (C)', () => toggleCam());
 HUD.topButton('⚙', 'Grafica', () => $('menu').classList.toggle('hidden'));
 $('menuClose').onclick = () => { ui.hide('menu'); if (ctx.state.settingsFromMenu) { ctx.state.settingsFromMenu = false; ctx.openMainMenu?.(); } };
 
@@ -596,7 +619,7 @@ function prewarm() {
   try {
     const meshes = [...(Diff?.prewarm?.(modCtx) || []), ...(Police?.prewarm?.() || [])];
     meshes.forEach((m, i) => { m.position.set((i % 6 - 3) * 3, 0, player.z - 20 - (i / 6 | 0) * 6); laneSpace.add(m); });
-    renderer.compile(scene, camera); bend(); renderer.render(scene, camera); unbend();
+    World.showAllForCompile(true); renderer.compile(scene, camera); World.showAllForCompile(false); bend(); renderer.render(scene, camera); unbend();
     meshes.forEach(m => laneSpace.remove(m));
   } catch (e) { console.error(e); }
 }

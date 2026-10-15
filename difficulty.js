@@ -113,7 +113,7 @@ function spawnEvent(ctx, P) {
   const lanes = lanesOf(ctx), n = lanes.length, type = ['convoy', 'jam', 'speeder', 'convoy', 'jam'][(rand() * 5) | 0];
   const rel = 170 + rand() * 40;
   if (type === 'convoy') { const gap = (rand() * n) | 0; for (let l = 0; l < n; l++) if (l !== gap) addVehicle(ctx, P, l, rel + rand() * 6, 15 * P.speedMul, l < 2 && rand() < .6); flash('Camion in carovana più avanti!', '#ffd23f'); }
-  else if (type === 'jam') { for (let k = 0; k < 6; k++) addVehicle(ctx, P, (rand() * n) | 0, rel + k * 9, 9 + rand() * 4, false); flash('Coda più avanti: attento!', '#ffd23f'); }
+  else if (type === 'jam') { for (let k = 0; k < 4; k++) addVehicle(ctx, P, (rand() * n) | 0, rel + k * 9, 9 + rand() * 4, false); flash('Coda più avanti: attento!', '#ffd23f'); }
   else { const v = addVehicle(ctx, P, n - 1, -45, (ctx.player.speed || 20) + 12, false); if (v) v.cruise = v.speed; }
 }
 const VPOOL = [], POOL = [];
@@ -141,12 +141,12 @@ export function update(dt, ctx = S.ctx) {
   if (lvl > S.lastLvl) { S.lastLvl = lvl; ctx.onEvent?.('intensity', { level: lvl }); flash(`Traffico in aumento! x${lvl.toFixed(2)}`); }
 
   // spawn
-  const maxCars = Math.round(P.maxCars * Math.min(2, S.intensity));
+  const maxCars = Math.round(P.maxCars * .5 * Math.min(1.6, S.intensity)); // v7: traffico dimezzato (feedback Joseph)
   const wave = 0.65 + 0.55 * Math.sin(S.elapsed / RUN.waveLen * 6.28 + RUN.phase);
   S.spawnT -= dt * P.density * S.intensity * wave * (0.6 + Math.min(1.5, (player.speed || 0) / 40));
-  if (S.spawnT <= 0 && S.vehicles.length < maxCars) { spawn(ctx, P); S.spawnT = 0.7 + rand() * 0.8; }
+  if (S.spawnT <= 0 && S.vehicles.length < maxCars) { spawn(ctx, P); S.spawnT = 1.4 + rand() * 1.4; }
   RUN.eventT -= dt; if (RUN.eventT <= 0) { RUN.eventT = 22 + rand() * 25; if (!ctx.state?.cinema) spawnEvent(ctx, P); }
-  if (!S.seeded) { S.seeded = true; for (let k = 0; k < 9; k++) spawn(ctx, P, 25 + k * 22 + rand() * 10); }
+  if (!S.seeded) { S.seeded = true; for (let k = 0; k < 5; k++) spawn(ctx, P, 30 + k * 40 + rand() * 12); }
 
   const pW = 1.9, pL = 4.4;
   for (let i = S.vehicles.length - 1; i >= 0; i--) {

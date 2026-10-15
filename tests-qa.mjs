@@ -29,7 +29,7 @@ await p.screenshot({ path: '/workspace/qa-menu.png' });
 const chN = await p.evaluate(() => tratta.debug.Story.CHAPTERS.length);
 for (let i = 0; i < chN; i++) {
   await p.evaluate(i => tratta.debug.Story.startChapter(i), i); await p.waitForTimeout(200);
-  const ms = await p.evaluate(i => tratta.debug.Story.CHAPTERS[i].missions, i);
+  const ms = await p.evaluate(i => tratta.debug.Story.CHAPTERS[i].missions, i); let seenCC = false;
   for (let m = 0; m < ms.length; m++) {
     for (let k = 0; k < 20 && !(await p.evaluate(m => { const s = tratta.debug.Story.getState(); return tratta.state.running && !tratta.state.paused && s.active && s.mission === m; }, m)); k++) { await advanceOverlays(p); await p.waitForTimeout(250); }
     const M = ms[m]; await p.evaluate(t => tratta.debug.noPolice = t !== 'escape', M.type);
@@ -42,13 +42,13 @@ for (let i = 0; i < chN; i++) {
       await sim(p, M.type === 'survive' ? 12 : 4);
       const e = await p.evaluate(() => __ev.map(x => x.n)); done = e.includes('missionComplete') || e.includes('missionFailed');
     }
-    const e = await ev(p); const comp = e.find(x => x.n === 'missionComplete'), fail = e.find(x => x.n === 'missionFailed');
+    const e = await ev(p); if (e.some(x => x.n === 'chapterComplete')) seenCC = true; const comp = e.find(x => x.n === 'missionComplete'), fail = e.find(x => x.n === 'missionFailed');
     ok(`Cap ${i + 1} missione ${m + 1} (${M.type})`, comp && !fail, fail ? 'fallita: ' + fail.d.reason : comp ? '' : 'nessun esito');
     ok(`Cap ${i + 1} m${m + 1} niente NaN`, (await nanCheck(p)) === 0);
     await p.waitForTimeout(200);
   }
   await p.waitForFunction(() => __ev.some(x => x.n === 'chapterComplete') || tratta.debug.Story.getState().save.unlocked > 0 && false, null, { timeout: 12000 }).catch(() => {});
-  const cc = (await ev(p)).some(x => x.n === 'chapterComplete'); ok(`Cap ${i + 1} completato e salvato`, cc);
+  const cc = seenCC || (await ev(p)).some(x => x.n === 'chapterComplete'); ok(`Cap ${i + 1} completato e salvato`, cc);
 }
 const save = await p.evaluate(() => JSON.parse(localStorage.getItem('tratta_story_v2') || '{}'));
 ok('Salvataggio localStorage dopo storia', save.unlocked >= chN, JSON.stringify(save).slice(0, 150));

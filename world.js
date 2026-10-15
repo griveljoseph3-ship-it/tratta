@@ -5,7 +5,9 @@ import * as Models from './models.js';
 import * as Road from './road.js';
 
 let scene, EDGE = 9.6, HALF = 7.2;
-const SPAN = 640, BEHIND = 70;
+// Chunk alla Minecraft: la strada è divisa in pezzi da CH metri; ne esistono solo NCH (1 dietro + il resto davanti, dentro la nebbia).
+// Quando ne superi uno, quello dietro viene riciclato come nuovo pezzo in fondo, con contenuto deciso dal seme del pezzo (sempre uguale).
+export const CH = 110, NCH = 6; const SPAN = CH * NCH, BEHIND = 70;
 // generatore locale: la scenografia non consuma il seme di gioco (traffico/polizia restano deterministici)
 let seed = 1; const r = () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 const rr = (a, b) => a + r() * (b - a);
@@ -67,7 +69,7 @@ export function groundH(s, off, sd) { // quota rispetto alla strada a distanza o
   return h;
 }
 // lato interno di una curva stretta: il terreno non può estendersi oltre il centro di curvatura
-function maxOff(s, sd) { const k = Road.kappa(s); if (Math.sign(k) !== sd || Math.abs(k) < 1e-4) return 1e9; return Math.max(2, .92 / Math.abs(k) - EDGE); }
+function maxOff(s, sd) { const k = Road.kappa(s); if (ENV === 'mountain' && Math.abs(k) < .02) return Math.min(Road.hairRadius(s) * 1.1 - EDGE, Math.sign(k) === sd && Math.abs(k) > 1e-4 ? .92 / Math.abs(k) - EDGE : 1e9); if (Math.sign(k) !== sd || Math.abs(k) < 1e-4) return 1e9; return Math.max(2, .92 / Math.abs(k) - EDGE); }
 
 // ---- texture terreno (canvas, solo colore) ----
 function canvasTex(w, h, draw, rep) { const c = document.createElement('canvas'); c.width = w; c.height = h; draw(c.getContext('2d'), w, h); const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 4; return t; }
@@ -106,6 +108,11 @@ function rebuildStrips(s) {
   const s0 = Math.floor(s / TSTEP) * TSTEP - BEHIND;
   if (s0 === builtS && builtV === Road.ver) return; builtS = s0; builtV = Road.ver;
   const nc = COLS.length;
+  // griglia dei punti strada (celle 16 m): il terreno di un tratto non deve coprire un altro tratto (tornanti, curve che si avvicinano)
+  const grid = new Map(), CELL = 16, key = (x, z) => (Math.floor(x / CELL) * 73856093) ^ (Math.floor(z / CELL) * 19349663);
+  for (let t = s0 - 300; t < s0 + TROWS * TSTEP + 300; t += 3) { const x = Road.x(t), z = Road.z(t), kk = key(x, z); let L = grid.get(kk); if (!L) grid.set(kk, L = []); L.push(t, x, z); }
+  const clearY = (x, z, ss, y) => { const lim = (EDGE + 2) ** 2; let out = y; for (let gx = -1; gx <= 1; gx++) for (let gz = -1; gz <= 1; gz++) { const L = grid.get(key(x + gx * CELL, z + gz * CELL)); if (!L) continue;
+      for (let i = 0; i < L.length; i += 3) { if (Math.abs(L[i] - ss) < 30) continue; const dx = L[i + 1] - x, dz = L[i + 2] - z; if (dx * dx + dz * dz < lim) { const ry = Road.y(L[i]) - 1.2; if (out > ry) out = ry; } } } return out; };
   terr.forEach((m, k) => {
     const sd = k ? 1 : -1, P = m.geometry.attributes.position.array, U = m.geometry.attributes.uv.array;
     for (let rI = 0; rI < TROWS; rI++) {
@@ -113,7 +120,7 @@ function rebuildStrips(s) {
       const lim = maxOff(ss, sd), scale = lim < COLS[nc - 1] ? lim / COLS[nc - 1] : 1;
       for (let ci = 0; ci < nc; ci++) {
         const off = COLS[ci] * scale, lat = sd * (EDGE + off), i = (rI * nc + ci) * 3, u = (rI * nc + ci) * 2;
-        P[i] = x0 + c * lat; P[i + 1] = y0 + groundH(ss, off, sd); P[i + 2] = z0 + sn * lat;
+        P[i] = x0 + c * lat; P[i + 2] = z0 + sn * lat; P[i + 1] = ci < 2 ? y0 + groundH(ss, off, sd) : clearY(P[i], P[i + 2], ss, y0 + groundH(ss, off, sd));
         U[u] = lat / 8; U[u + 1] = ss / 8;
       }
     }
@@ -155,14 +162,16 @@ function windowsShader(mat) { // finestre accese di notte: i texel azzurri del c
 function buildEnv(env) {
   if (groups[env]) return groups[env];
   const G = { meshes: [], items: [], byModel: {} };
+  ENVS[env].forEach((kind, ki) => { kind.ki = ki; });
   for (const kind of ENVS[env]) {
     const avail = kind.m.filter(p => Models.get(p)); if (!avail.length) continue;
-    const per = {}; for (let i = 0; i < kind.n; i++) { const p = avail[i % avail.length]; (per[p] ||= []).push(i); }
+    kind.per = Math.max(1, Math.round(kind.n / NCH)); const N = kind.per * NCH;
+    const per = {}; for (let i = 0; i < N; i++) { const p = avail[i % avail.length]; (per[p] ||= []).push(i); }
     for (const p in per) {
       const parts = Models.parts(p), M = Models.get(p); if (!parts) continue;
       const count = per[p].length, ims = parts.map(pt => { const mat = env === 'city' && p.startsWith(C) && p.includes('building') ? (pt.material._win ||= windowsShader(pt.material)) : pt.material;
         const im = new THREE.InstancedMesh(pt.geometry, mat, count); if (kind.tint) for (let q = 0; q < count; q++) im.setColorAt(q, TC.set(0xffffff)); im.frustumCulled = false; im.castShadow = !kind.noShadow; im.receiveShadow = true; im.visible = false; scene.add(im); G.meshes.push(im); return im; });
-      per[p].forEach((ki, slot) => G.items.push({ kind, model: p, M, ims, slot, idx: ki, s: 0, sd: 1 }));
+      per[p].forEach((ki, slot) => G.items.push({ kind, model: p, M, ims, slot, idx: ki, k: Math.floor(ki / kind.per), j: ki % kind.per, s: 0, sd: 1 }));
     }
   }
   return groups[env] = G;
@@ -175,14 +184,15 @@ function place(it, s) {
   const size = k.w ? rr(k.w[0], k.w[1]) : rr(k.h[0], k.h[1]);
   const sc = k.w ? size / Math.max(M.size.x, .01) : size / Math.max(M.size.y, .01);
   const depth = (k.face ? M.size.z : Math.max(M.size.x, M.size.z)) * sc;
-  let off = rr(k.off[0], k.off[1]) + (k.face || k.w ? depth / 2 : Math.max(0, depth * .3));
+  const rad = Math.max(M.size.x, M.size.z) * sc * .5; // ingombro reale: niente rocce/alberi che sporgono in carreggiata
+  let off = rr(k.off[0], k.off[1]) + (k.face || k.w ? depth / 2 : rad + .6);
   if (k.lamp) off = -1.2; // sul marciapiede, braccio verso la strada
-  off = Math.min(off, maxOff(s, it.sd) - 1);
+  const mo = maxOff(s, it.sd) - 1; let hideIn = false; if (!k.lamp && !k.warn && off > mo) { if (mo < rad + .6) hideIn = true; else off = mo; }
   const lat = it.sd * (EDGE + off);
   Road.frame(s, lat, F);
   let y = F.y + (k.lamp || k.warn ? 0 : groundH(s, off, it.sd));
   // non sopra un'altra tratta della strada (tornanti) e non dentro la carreggiata
-  let hide = off < -1.3 || (k.lamp ? false : onOtherRoad(F.x, F.z, s, Math.max(4, depth * .5)));
+  let hide = hideIn || off < -1.3 || (k.lamp ? false : onOtherRoad(F.x, F.z, s, k.face || k.w ? depth * .5 : rad));
   if (ENV === 'mountain' && sideOf(s, it.sd) < 0 && off > 4 && k.side !== 'up') y -= depth * .1; // radici nel pendio
   D.position.set(F.x, y - (M.bb.min.y * sc) - (k.h && !k.lamp ? .15 : 0), F.z);
   const facing = k.face || k.lamp ? Math.atan2(-it.sd * Math.cos(F.th), -it.sd * Math.sin(F.th)) : r() * 6.283;
@@ -193,11 +203,9 @@ function place(it, s) {
   if (k.lamp && !hide) { Road.frame(s, it.sd * (EDGE - 1.2 - 1.9), F); it.head = [F.x, y + size * .97, F.z]; } else it.head = null;
 }
 const near = { x: 0, z: 0 };
-function onOtherRoad(x, z, s, rad) {
-  if (ENV !== 'mountain') { // le curve ampie non si ripiegano: controllo solo la carreggiata vicina
-    return false;
-  }
-  for (let t = s - 320; t < s + 320; t += 5) { if (Math.abs(t - s) < 25) continue; const dx = Road.x(t) - x, dz = Road.z(t) - z; if (dx * dx + dz * dz < (EDGE + rad + 3) ** 2) return true; }
+function onOtherRoad(x, z, s, rad) { // controlla tutta la strada vicina (curve strette e tornanti ripiegano la strada su sé stessa)
+  const lim = (EDGE + .3 + rad) ** 2;
+  for (let t = s - 400; t < s + 400; t += 4) { const dx = Road.x(t) - x, dz = Road.z(t) - z; if (dx * dx + dz * dz < lim) return true; }
   return false;
 }
 let G = null;
@@ -206,29 +214,41 @@ export function setEnvironment(env) {
   for (const k in groups) for (const m of groups[k].meshes) m.visible = false;
   G = buildEnv(ENV); for (const m of G.meshes) m.visible = true;
   groundMat.map = TEX[ENV]; groundMat.color.set(ENV === 'city' ? 0xffffff : 0xffffff); groundMat.needsUpdate = true;
-  rails.visible = railPosts.visible = ENV === 'mountain';
+  rails.visible = railPosts.visible = true; // guardrail ovunque: il limite laterale si vede (niente muri invisibili)
   valley.visible = ENV === 'mountain'; valley.material.color.set(0x4a5a44);
   builtS = null; resetItems(0);
 }
-let itemsVer = -1;
-function resetItems(s) {
-  itemsVer = Road.ver;
-  const byKind = new Map(); for (const it of G.items) { if (!byKind.has(it.kind)) byKind.set(it.kind, []); byKind.get(it.kind).push(it); }
-  for (const [k, list] of byKind) list.forEach((it, i) => {
-    if (k.warn) { it.force = 0; place(it, nextHairAfter(s + 20 + i * 200) - 45); return; }
-    if (k.step) { it.force = i % 2 ? 1 : -1; it.span = Math.ceil(list.length / 2) * k.step; place(it, s - BEHIND + (i >> 1) * k.step + (k.w ? (i % 2) * k.step * .5 : 0)); }
-    else place(it, s - BEHIND + rr(0, SPAN));
-  });
-}
-function recycle(s) {
-  for (const it of G.items) {
-    if (it.s >= s - BEHIND) continue;
-    const k = it.kind;
-    if (k.warn) place(it, nextHairAfter(Math.max(s, it.s + 120)) - 45);
-    else if (k.step) place(it, it.s + Math.ceil((s - BEHIND - it.s) / it.span + 1e-6) * it.span);
-    else place(it, it.s + SPAN + rr(-20, 20));
+let itemsVer = -1; const slotChunk = new Int32Array(NCH).fill(-1 << 30);
+const hash = n => { n = Math.imul(n ^ n >>> 16, 0x45d9f3b); n = Math.imul(n ^ n >>> 16, 0x45d9f3b); return (n ^ n >>> 16) | 0; };
+function hideItem(it) { D.position.set(0, -9999, 0); D.scale.setScalar(0); D.updateMatrix(); for (const im of it.ims) { im.setMatrixAt(it.slot, D.matrix); im.instanceMatrix.needsUpdate = true; } it.head = null; }
+function fillChunk(c, k) { // riempie lo slot k con il contenuto del pezzo c
+  slotChunk[k] = c; const c0 = c * CH;
+  for (const it of G.items) { if (it.k !== k) continue; const K = it.kind, j = it.j;
+    seed = hash(c * 977 + K.ki * 131 + j * 7 + Road.ver * 7919);
+    if (c0 + CH < -250) { hideItem(it); continue; }
+    if (K.warn) { const h = firstHairIn(c0, c0 + CH); if (h == null || j) hideItem(it); else { it.force = 0; place(it, Math.max(c0, h - 45)); } continue; }
+    if (K.step) { const n2 = K.per, sp = CH / Math.ceil(n2 / 2); it.force = j % 2 ? 1 : -1;
+      if (K.step > CH && r() > CH / K.step) { hideItem(it); continue; }
+      place(it, c0 + (j >> 1) * sp + (K.w ? (j % 2) * sp * .5 : 0) + (K.lamp ? 5 : 0)); continue; }
+    it.force = 0; place(it, c0 + r() * CH);
   }
 }
+function firstHairIn(a, b) { for (let t = a; t < b; t += 5) if (Math.abs(Road.kappa(t + 45)) > .025) return t + 45; return null; }
+function resetItems(s) { itemsVer = Road.ver; slotChunk.fill(-1 << 30); syncChunks(s); }
+function syncChunks(s) {
+  const cur = Math.floor((s - BEHIND) / CH);
+  for (let c = cur; c < cur + NCH; c++) { const k = ((c % NCH) + NCH) % NCH; if (slotChunk[k] !== c) fillChunk(c, k); }
+}
+// costruisce tutti gli ambienti e li rende visibili per un attimo: il chiamante compila gli shader una volta sola (niente scatti al cambio ambiente)
+export function showAllForCompile(on) { for (const e in ENVS) buildEnv(e); for (const k in groups) for (const m of groups[k].meshes) m.visible = on || k === ENV; }
+export function debugClearance() { // per i test: posizioni e ingombri degli oggetti visibili + vertici del terreno
+  const items = []; for (const it of G.items) { if (it.hidden) continue; const im = it.ims[0]; im.getMatrixAt(it.slot, _m); _v.setFromMatrixPosition(_m); const sc = _sc.setFromMatrixScale(_m).x; if (sc < 1e-6) continue;
+    const k = it.kind, M = it.M; items.push({ x: _v.x, z: _v.z, y: _v.y, rad: (k.face || k.w ? M.size.z : Math.max(M.size.x, M.size.z)) * sc * .5, model: it.model, lamp: !!(k.lamp || k.warn) }); }
+  const verts = []; for (const m of terr) { const a = m.geometry.attributes.position.array; for (let i = 0; i < a.length; i += 3) verts.push([a[i], a[i + 1], a[i + 2]]); }
+  return { items, verts, edge: EDGE };
+}
+const _m = new THREE.Matrix4(), _v = new THREE.Vector3(), _sc = new THREE.Vector3();
+export function chunkInfo() { return { CH, NCH, slots: [...slotChunk] }; }
 function nextHairAfter(s) { for (let t = s; t < s + 1500; t += 5) if (Math.abs(Road.kappa(t)) > .025) return t; return s + 800; }
 
 // ---- aloni dei lampioni (notte, città) ----
@@ -247,7 +267,7 @@ export async function init(o) {
 export function update(s, dt, camera) {
   if (!G) return;
   if (itemsVer !== Road.ver) resetItems(s);
-  recycle(s); rebuildStrips(s);
+  syncChunks(s); rebuildStrips(s);
   if (valley.visible) { Road.frame(s, 0, F); valley.position.set(F.x, F.y - 70, F.z); }
   void dt, camera;
 }

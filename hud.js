@@ -85,6 +85,10 @@ export function init(o) {
   E.mm = el('div', 'mmap', 'hx glass', '<canvas width="264" height="264"></canvas>'); mm = E.mm.firstChild; mg = mm.getContext('2d');
   E.stars = el('div', 'hxStars', 'hx', '');
   E.air = el('div', 'hxAir', 'hx', 'IN VOLO');
+  // linee di velocità: canvas a mezza risoluzione, disegnato solo oltre ~100 km/h o col nitro
+  E.sl = el('canvas', 'hxLines', 'hx', ''); E.sl.style.cssText = 'inset:0;width:100%;height:100%;z-index:5;mix-blend-mode:screen'; E.slg = E.sl.getContext('2d');
+  const rs = () => { E.sl.width = innerWidth >> 1; E.sl.height = innerHeight >> 1; }; rs(); addEventListener('resize', rs);
+  E.lines = Array.from({ length: 46 }, () => ({ a: Math.random() * 6.283, r: Math.random(), v: .6 + Math.random() * .8 }));
   E.top = el('div', 'hxTop', 'hx', '');
   // touch
   const tc = el('div', 'tc', '', `<div id="tSteer"><div id="tTrack"><div id="tKnob"></div></div></div><div id="tCl"><div id="tG" class="tb">GAS</div><div id="tB" class="tb">FRENO</div><div id="tH" class="tb">DRIFT</div><div id="tN" class="tb"><svg viewBox="0 0 88 88"><circle cx="44" cy="44" r="41" fill="none" stroke="rgba(34,225,255,.18)" stroke-width="3"/><circle id="tNr" cx="44" cy="44" r="41" fill="none" stroke="#22e1ff" stroke-width="3" stroke-dasharray="258 258" stroke-dashoffset="0" stroke-linecap="round"/></svg>NITRO</div></div>`);
@@ -110,7 +114,7 @@ export function tick() {}
 let t20 = 0, t10 = 0, lastStars = '';
 export function update(dt, show) {
   const vis = show ? '' : 'none';
-  if (E.speedo.style.display !== vis) { for (const k of ['speedo', 'mm', 'stars', 'air']) E[k].style.display = vis; document.getElementById('tc').style.visibility = show ? 'visible' : 'hidden'; }
+  if (E.speedo.style.display !== vis) { for (const k of ['speedo', 'mm', 'stars', 'air', 'sl']) E[k].style.display = vis; document.getElementById('tc').style.visibility = show ? 'visible' : 'hidden'; }
   if (!show) return;
   t20 += dt; t10 += dt; const p = ctx.player;
   if (t20 >= .05) { t20 = 0;
@@ -123,7 +127,22 @@ export function update(dt, show) {
     E.air.style.opacity = p.air && p.airT > .35 ? 1 : 0;
     if (touch) E.tNr.setAttribute('stroke-dashoffset', (251 * (1 - p.nitro)).toFixed(0));
   }
+  speedLines(dt);
   if (t10 >= .1) { t10 = 0; drawMap(); const h = ctx.debug.Police?.getState?.().heat || 0; const s = h ? '★'.repeat(h) + '☆'.repeat(5 - h) : ''; if (s !== lastStars) { E.stars.textContent = s; lastStars = s; } }
+}
+let slT = 0, slOn = false;
+function speedLines(dt) {
+  const p = ctx.player, nit = ctx.keys.Space && p.nitro > 0, k = Math.max(0, Math.min(1, (p.speed - 28) / 30)) + (nit ? .5 : 0);
+  slT += dt; if (slT < 1 / 30) return; const d = slT; slT = 0;
+  const g = E.slg, W = E.sl.width, H = E.sl.height;
+  if (k <= 0 || ctx.state.cinema) { if (slOn) { g.clearRect(0, 0, W, H); slOn = false; } return; } slOn = true;
+  g.clearRect(0, 0, W, H); const cx = W / 2, cy = H * .46, R = Math.hypot(W, H) * .55;
+  g.lineCap = 'round'; g.strokeStyle = nit ? 'rgba(120,230,255,.55)' : 'rgba(255,255,255,.38)';
+  for (const l of E.lines) { l.r += l.v * d * (1.2 + k * 2.2); if (l.r > 1) { l.r = .35 + Math.random() * .2; l.a = Math.random() * 6.283; }
+    const r0 = R * l.r, r1 = R * Math.min(1.05, l.r + .07 + k * .12), c = Math.cos(l.a), sn = Math.sin(l.a);
+    if (Math.abs(sn) > .9 && sn < 0) continue; // niente linee sul cielo in alto al centro
+    g.globalAlpha = Math.min(1, k) * l.r; g.lineWidth = 1 + l.r * 2.2; g.beginPath(); g.moveTo(cx + c * r0, cy + sn * r0 * .7); g.lineTo(cx + c * r1, cy + sn * r1 * .7); g.stroke(); }
+  g.globalAlpha = 1;
 }
 const F = { x: 0, y: 0, z: 0, th: 0 };
 function drawMap() {

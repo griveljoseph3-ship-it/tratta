@@ -23,8 +23,8 @@ export function update(st) {
   for (const e of eng) { set(e.o.frequency, f * e.m, .03); set(e.g.gain, e.v * (st.throttle ? 1 : .55) * (.5 + rpm * .6)); }
   set(engF.frequency, 500 + rpm * 2200 * (st.throttle ? 1 : .6));
   const s = st.speed || 0;
-  set(wind.gain, Math.min(.35, s * s * .00012)); set(windF.frequency, 500 + s * 25);
-  set(roll.gain, Math.min(.3, s * .006)); set(rollF.frequency, 90 + s * 3);
+  set(wind.gain, Math.min(.5, s * s * .00016) * (st.hood ? .7 : 1)); set(windF.frequency, 500 + s * 28);
+  set(roll.gain, Math.min(.3, s * .006) + (st.offroad ? Math.min(.35, s * .02) : 0)); set(rollF.frequency, (st.offroad ? 60 : 90) + s * 3); // rombo della banchina
   set(screech.gain, Math.min(.18, (st.drift || 0) * .2 * Math.min(1, s / 15)), .05);
   if (st.siren) { const d = st.siren.dist; const ph = (A.currentTime * 1.6) % 2; set(sir.frequency, ph < 1 ? 650 + ph * 450 : 1100 - (ph - 1) * 450, .02); set(sirG.gain, Math.min(.12, 6 / Math.max(6, d)) * .12 / .12); if (sirP.pan) set(sirP.pan, Math.max(-1, Math.min(1, st.siren.pan))); }
   else set(sirG.gain, 0, .3);
