@@ -1,7 +1,7 @@
 /**
  * Tratta — cinema.js  (menu cinematografico, personaggi, dialoghi, cutscene) — Three.js 0.160
  *
- * Dipendenze: 'three', './story.js' (CHAPTERS, PROTAGONIST), './cars.js' (makeCar).
+ * Dipendenze: 'three', './story.js', './models.js' (modelli GLB Kenney già caricati dal gioco); auto da window.tratta.makeCar.
  * Il modulo usa un SUO canvas/renderer WebGL (sopra al gioco) per menu e cutscene: non tocca
  * la scena dell'host. L'host deve mettere in pausa la guida quando riceve 'cinema' {active:true}.
  *
@@ -25,7 +25,11 @@
  */
 import * as THREE from 'three';
 import { CHAPTERS, PROTAGONIST, PROLOGUE } from './story.js';
-import { makeCar } from './cars.js';
+import * as Models from './models.js';
+const makeCar = (t, o) => globalThis.tratta.makeCar(t, { ...o, full: true });
+// oggetto di scena da modello GLB: altezza (o larghezza) in metri
+function prop(path, size, byWidth) { const M = Models.get(path), parts = Models.parts(path); if (!M || !parts) return null; const g = new THREE.Group(); const sc = size / Math.max(.01, byWidth ? M.size.x : M.size.y);
+  for (const pt of parts) { const m = new THREE.Mesh(pt.geometry, pt.material); m.castShadow = m.receiveShadow = true; g.add(m); } g.scale.setScalar(sc); g.userData.h = M.size.y * sc; g.userData.d = M.size.z * sc; g.userData.minY = M.bb.min.y * sc; return g; }
 
 // ---------------------------------------------------------------- personaggi (SVG)
 function face({ skin, hair, hairStyle, bg, accent, extra = '', eyes = 'normal', mouth = 'flat', beard = '' }) {
@@ -149,8 +153,9 @@ function makeStage(parent, env = 'city', time = 'night') {
   const scene = new THREE.Scene();
   const P = { city: { sky: 0x1a2235, fog: 0x1a2235, ground: 0x23262b, road: 0x2a2c30, sun: 0xffc9a0 },
     jungle: { sky: 0x1e2b22, fog: 0x22301f, ground: 0x253a1f, road: 0x4a3a2a, sun: 0xd8f0c0 },
-    desert: { sky: 0x6a4a3a, fog: 0x8a6448, ground: 0xb08a5a, road: 0x9a7a52, sun: 0xffd9a0 } }[env] || {};
-  if (time === 'day') Object.assign(P, { sky: { city: 0x9fc3e6, jungle: 0x9fb89a, desert: 0xe8cfa0 }[env] || 0x9fc3e6, sun: 0xfff2dc }, { fog: { city: 0xb8cde0, jungle: 0x8fa88a, desert: 0xe0c69a }[env] || 0xb8cde0 });
+    desert: { sky: 0x6a4a3a, fog: 0x8a6448, ground: 0xb08a5a, road: 0x9a7a52, sun: 0xffd9a0 },
+    mountain: { sky: 0x141c2a, fog: 0x1a2232, ground: 0x3a4036, road: 0x2c2e32, sun: 0xc8d8ff } }[env] || {};
+  if (time === 'day') Object.assign(P, { sky: { city: 0x9fc3e6, jungle: 0x9fb89a, desert: 0xe8cfa0, mountain: 0xa8c0dc }[env] || 0x9fc3e6, sun: 0xfff2dc }, { fog: { city: 0xb8cde0, jungle: 0x8fa88a, desert: 0xe0c69a, mountain: 0xb8c6d4 }[env] || 0xb8cde0 });
   else if (time === 'dusk') Object.assign(P, { sky: 0x8a5a5a, fog: 0x7a5050, sun: 0xff9a5a });
   scene.background = new THREE.Color(P.sky); scene.fog = new THREE.Fog(P.fog, 25, 140);
   const camera = new THREE.PerspectiveCamera(38, 1, .1, 400);
@@ -164,17 +169,16 @@ function makeStage(parent, env = 'city', time = 'night') {
   road.rotation.x = -Math.PI / 2; road.position.y = .01; road.receiveShadow = true; scene.add(road);
   const dashM = new THREE.MeshBasicMaterial({ color: env === 'city' ? 0xeeeeee : 0x6a5a40 });
   for (let z = -300; z < 300; z += 9) { const d = new THREE.Mesh(new THREE.PlaneGeometry(.15, 3.5), dashM); d.rotation.x = -Math.PI / 2; d.position.set(0, .02, z); scene.add(d); }
-  // scenografia semplice
-  const propM = new THREE.MeshStandardMaterial({ color: env === 'city' ? 0x3a3f4a : env === 'jungle' ? 0x1f4d1f : 0xc49a62, roughness: .9 });
-  const winM = new THREE.MeshBasicMaterial({ color: 0xffd28a });
-  for (let i = 0; i < 70; i++) {
-    const side = i % 2 ? 1 : -1, z = -280 + i * 8 + Math.random() * 4, x = side * (14 + Math.random() * 30);
-    let m;
-    if (env === 'city') { const h = 8 + Math.random() * 26; m = new THREE.Mesh(new THREE.BoxGeometry(8, h, 8), propM); m.position.set(x, h / 2, z);
-      for (let k = 0; k < 4; k++) { const w = new THREE.Mesh(new THREE.PlaneGeometry(1.2, .8), winM); w.position.set(-side * 4.02, 2 + Math.random() * (h - 3), (Math.random() - .5) * 6); w.rotation.y = side > 0 ? -Math.PI / 2 : Math.PI / 2; m.add(w); } }
-    else if (env === 'jungle') { const h = 6 + Math.random() * 8; m = new THREE.Mesh(new THREE.ConeGeometry(2.5 + Math.random() * 2, h, 7), propM); m.position.set(x * .7, h / 2, z); }
-    else { const r = 6 + Math.random() * 10; m = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), propM); m.scale.y = .3; m.position.set(x * 1.4, 0, z); }
-    m.castShadow = env !== 'desert'; scene.add(m);
+  // scenografia: modelli GLB (Kenney, CC0)
+  const LIST = { city: [['city/building-a', 16, 1], ['city/building-c', 16, 1], ['city/building-f', 15, 1], ['city/building-skyscraper-b', 20, 1], ['city/building-h', 16, 1], ['city/tree-large', 8]],
+    jungle: [['nature/tree_palmTall', 13], ['nature/tree_palmDetailedTall', 14], ['nature/tree_fat', 20], ['nature/plant_bushLarge', 2.5], ['nature/tree_palmBend', 11]],
+    desert: [['nature/cactus_tall', 5], ['nature/rock_largeA', 6], ['nature/cactus_short', 3], ['nature/rock_tallB', 9]],
+    mountain: [['nature/tree_pineTallA_detailed', 15], ['nature/tree_pineRoundC', 11], ['nature/rock_tallA', 5], ['nature/cliff_large_rock', 16]] }[env] || [];
+  for (let i = 0; i < 64 && LIST.length; i++) {
+    const side = i % 2 ? 1 : -1, z = -260 + i * 8.5 + Math.random() * 4, [path, size, w] = LIST[i % LIST.length];
+    const m = prop(path, size * (.85 + Math.random() * .3), w); if (!m) continue;
+    const x = side * (w ? 12 + m.userData.d / 2 : 9 + Math.random() * 26);
+    m.position.set(x, -m.userData.minY, z); m.rotation.y = w ? (side > 0 ? -Math.PI / 2 : Math.PI / 2) : Math.random() * 6.28; scene.add(m);
   }
   const resize = () => { const w = parent.clientWidth || innerWidth, h = parent.clientHeight || innerHeight; renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix(); };
   resize(); addEventListener('resize', resize);
@@ -310,15 +314,13 @@ export async function playCutscene(id, ctx) {
   // set della trattoria (solo prologo): facciata, vetrina calda, insegna al neon, tavolini fuori
   let tratt = null;
   if (S.kind === 'intro') {
-    tratt = new THREE.Group(); const wall = new THREE.Mesh(new THREE.BoxGeometry(14, 9, 6), new THREE.MeshStandardMaterial({ color: 0x6a4a3a, roughness: .9 })); wall.position.set(-13, 4.5, -2); tratt.add(wall);
+    tratt = new THREE.Group(); const wall = prop('city/building-c', 14, true); if (wall) { wall.rotation.y = Math.PI / 2; wall.position.set(-6.1 - wall.userData.d / 2, -wall.userData.minY, -2); tratt.add(wall); }
     const glass = new THREE.Mesh(new THREE.PlaneGeometry(5, 2.4), new THREE.MeshBasicMaterial({ color: 0xffb060 })); glass.position.set(-5.99, 1.9, -2); glass.rotation.y = Math.PI / 2; tratt.add(glass);
     const win2 = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.6), new THREE.MeshBasicMaterial({ color: 0xffd28a })); win2.position.set(-5.99, 6, -4); win2.rotation.y = Math.PI / 2; tratt.add(win2);
     const c = document.createElement('canvas'); c.width = 512; c.height = 128; const g = c.getContext('2d'); g.fillStyle = '#1a0e0a'; g.fillRect(0, 0, 512, 128); g.font = 'bold 64px Georgia,serif'; g.textAlign = 'center'; g.shadowColor = '#ff5a3a'; g.shadowBlur = 24; g.fillStyle = '#ffd0a0'; g.fillText('Trattoria Santoro', 256, 84);
     const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace;
     const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.5), new THREE.MeshBasicMaterial({ map: tx })); sign.position.set(-5.95, 3.9, -2); sign.rotation.y = Math.PI / 2; tratt.add(sign);
     const warm = new THREE.PointLight(0xffa050, 40, 18); warm.position.set(-4, 2.5, -2); tratt.add(warm);
-    const tm = new THREE.MeshStandardMaterial({ color: 0xe8e0d0 });
-    for (const z of [-4.5, .5]) { const t = new THREE.Mesh(new THREE.CylinderGeometry(.5, .5, .06, 12), tm); t.position.set(-4.6, .8, z); const leg = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .8), tm); leg.position.set(-4.6, .4, z); tratt.add(t, leg); }
     st.scene.add(tratt);
   }
   for (let i = 0; i < 3; i++) { const p = addCar(st.scene, 'police'); p.visible = false; cops.push(p); sir.push(sirenLights(p)); }

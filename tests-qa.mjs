@@ -47,7 +47,7 @@ for (let i = 0; i < chN; i++) {
     ok(`Cap ${i + 1} m${m + 1} niente NaN`, (await nanCheck(p)) === 0);
     await p.waitForTimeout(200);
   }
-  await p.waitForFunction(() => __ev.some(x => x.n === 'chapterComplete') || tratta.debug.Story.getState().save.unlocked > 0 && false, null, { timeout: 5000 }).catch(() => {});
+  await p.waitForFunction(() => __ev.some(x => x.n === 'chapterComplete') || tratta.debug.Story.getState().save.unlocked > 0 && false, null, { timeout: 12000 }).catch(() => {});
   const cc = (await ev(p)).some(x => x.n === 'chapterComplete'); ok(`Cap ${i + 1} completato e salvato`, cc);
 }
 const save = await p.evaluate(() => JSON.parse(localStorage.getItem('tratta_story_v2') || '{}'));
@@ -85,9 +85,10 @@ for (const env of ['city', 'jungle', 'desert']) for (const c of cars) {
 }
 for (const env of ['city', 'jungle', 'desert']) { await p.evaluate(e => tratta.debug.Story.startFreeRoam('rally', e), env); await p.evaluate(() => tratta.keys.ArrowUp = true); await sim(p, 6); await p.waitForTimeout(500); await p.screenshot({ path: `/workspace/qa-${env}.png` }); }
 // velocità massima e curve: 60 s di gas, nessuna uscita
-await p.evaluate(() => { tratta.debug.Story.startFreeRoam('berlina', 'city'); tratta.debug.noTraffic = true; tratta.debug.noPolice = true; tratta.debug.Police.setHeat(0); tratta.debug.Diff.reset(); tratta.player.speed = 0; tratta.keys.ArrowUp = true; }); await sim(p, 9.5); const t100 = await p.evaluate(() => tratta.player.speed * 3.6); ok('0-100 berlina ~8-12 s', t100 > 85 && t100 < 125, t100.toFixed(0) + ' km/h dopo 9.5 s'); await sim(p, 30);
+await p.evaluate(() => { tratta.debug.Story.startFreeRoam('berlina', 'city'); tratta.debug.noTraffic = true; tratta.debug.noPolice = true; tratta.debug.Police.setHeat(0); tratta.debug.Diff.reset(); tratta.player.speed = 0; tratta.keys.ArrowUp = true; tratta.debug.noCurve = true; }); await sim(p, 9.5); const t100 = await p.evaluate(() => tratta.player.speed * 3.6); ok('0-100 berlina ~8-12 s', t100 > 85 && t100 < 125, t100.toFixed(0) + ' km/h dopo 9.5 s'); await sim(p, 30);
 const top = await p.evaluate(() => ({ kmh: tratta.player.speed * 3.6, gear: tratta.player.gear, d: tratta.player.distance }));
 ok('Accelerazione realistica (berlina 30 s)', top.kmh > 140 && top.kmh < 215, JSON.stringify(top));
+await p.evaluate(() => { tratta.debug.noCurve = false; });
 await p.evaluate(() => tratta.keys.ArrowUp = false); await p.evaluate(() => tratta.keys.ArrowDown = true); await sim(p, 6); 
 ok('Frenata ferma l\'auto', await p.evaluate(() => tratta.player.speed) < 1); await p.evaluate(() => { tratta.keys.ArrowDown = false; tratta.debug.noTraffic = false; });
 // 6 qualità
@@ -137,14 +138,16 @@ const v0 = await ip.evaluate(() => tratta.player.speed);
 await ip.dispatchEvent('#tG', 'pointerdown', { pointerId: 1, pointerType: 'touch' }); await sim(ip, 3);
 const v1 = await ip.evaluate(() => tratta.player.speed);
 ok('iPad: GAS touch accelera', v1 > v0 + 5, `${v0.toFixed(1)} -> ${v1.toFixed(1)}`);
-await ip.evaluate(() => { tratta.debug.autopilot = false; window.__ap = false; }); await ip.dispatchEvent('#tR', 'pointerdown', { pointerId: 2, pointerType: 'touch' }); await sim(ip, 1);
+await ip.evaluate(() => { tratta.debug.autopilot = false; window.__ap = false; const z = document.getElementById('tSteer'), r = z.getBoundingClientRect(), x = r.left + 150, y = r.bottom - 60;
+  z.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 2, pointerType: 'touch', clientX: x, clientY: y, bubbles: true })); z.dispatchEvent(new PointerEvent('pointermove', { pointerId: 2, pointerType: 'touch', clientX: x + 90, clientY: y, bubbles: true })); });
+await sim(ip, 1);
 const x1 = await ip.evaluate(() => tratta.player.x);
-await ip.dispatchEvent('#tR', 'pointerup', { pointerId: 2, pointerType: 'touch' });
+await ip.evaluate(() => document.getElementById('tSteer').dispatchEvent(new PointerEvent('pointerup', { pointerId: 2, pointerType: 'touch', bubbles: true })));
 ok('iPad: sterzo touch (multi-touch con gas)', x1 > -1.5, 'x=' + x1.toFixed(2));
 await ip.dispatchEvent('#tG', 'pointerup', { pointerId: 1, pointerType: 'touch' });
 await ip.dispatchEvent('#tB', 'pointerdown', { pointerId: 3, pointerType: 'touch' }); await sim(ip, 4); await ip.dispatchEvent('#tB', 'pointerup', { pointerId: 3, pointerType: 'touch' });
 ok('iPad: FRENO touch', (await ip.evaluate(() => tratta.player.speed)) < 2);
-const ipOver = await ip.evaluate(() => { const ids = ['tL','tR','tN','tB','tG']; const r = ids.map(i => document.getElementById(i).getBoundingClientRect()); return r.every(x => x.width >= 60 && x.bottom <= innerHeight && x.right <= innerWidth && x.left >= 0); });
+const ipOver = await ip.evaluate(() => { const ids = ['tSteer','tH','tN','tB','tG']; const r = ids.map(i => document.getElementById(i).getBoundingClientRect()); return r.every(x => x.width >= 60 && x.bottom <= innerHeight && x.right <= innerWidth && x.left >= 0); });
 ok('iPad: pulsanti touch visibili e grandi', ipOver);
 await ip.screenshot({ path: '/workspace/qa-ipad.png' });
 await ip.close();

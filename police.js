@@ -104,7 +104,7 @@ function makeHeli() {
 
 function makeHud() {
   if (typeof document === 'undefined') return null;
-  const el = document.createElement('div');
+  const el = document.createElement('div'); el.id = 'policeHud';
   el.style.cssText = 'position:fixed;top:12px;right:12px;z-index:50;font:700 15px system-ui,sans-serif;color:#fff;text-align:right;text-shadow:0 2px 4px #000;pointer-events:none';
   el.innerHTML = '<div data-s style="font-size:22px;letter-spacing:3px"></div><div data-t></div><div data-b style="height:6px;background:#300;margin-top:4px;width:160px;margin-left:auto"><div style="height:100%;width:0;background:#f22"></div></div>';
   ((C && C.ui instanceof (globalThis.HTMLElement || Object)) ? C.ui : document.body).appendChild(el);
@@ -223,8 +223,10 @@ function spawnBlock(ctx, type) {
   if (type === 'roadblock') {
     L.forEach((lx, i) => {
       if (i === gapLane) return;
+      const pr = globalThis.tratta?.makeProp?.('road/construction-barrier', 3.2);
+      if (pr) { pr.position.set(lx, 0, 0); g.add(pr); } else {
       const bar = new T.Mesh(new T.BoxGeometry(3.4, 1, 0.4), mats.barrier); bar.position.set(lx, 0.6, 0); g.add(bar);
-      const st = new T.Mesh(new T.BoxGeometry(3.42, 0.25, 0.42), mats.stripe); st.position.set(lx, 0.7, 0); g.add(st);
+      const st = new T.Mesh(new T.BoxGeometry(3.42, 0.25, 0.42), mats.stripe); st.position.set(lx, 0.7, 0); g.add(st); }
       const car = makeCar(); car.rotation.y = Math.PI / 2; car.position.set(lx, 0, 2.5); g.add(car);
     });
   } else {
@@ -324,6 +326,7 @@ export function update(dt, ctx) {
         want = pSpeed + Math.max(-12, Math.min(22, dz * 1.1)) * cfg.speed;
       }
       want = Math.max(0, Math.min(want, Math.max(pSpeed, 30) * cfg.speed + 12));
+      if (ctx.road.curveLimit) want = Math.min(want, ctx.road.curveLimit(-(ctx.player.z || 0) + u.z) * 1.15);
       const acc = want > u.speed ? 9 * u.skill : 14;
       u.speed += Math.sign(want - u.speed) * Math.min(Math.abs(want - u.speed), acc * dt);
       u.z += (u.speed - pSpeed) * dt;

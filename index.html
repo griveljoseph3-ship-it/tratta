@@ -4,6 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
 <title>Tratta</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;600;700&display=swap" rel="stylesheet">
 <link rel="icon" href="favicon.svg" type="image/svg+xml" />
 <style>
 html,body{touch-action:none;overscroll-behavior:none;-webkit-user-select:none;margin:0;height:100%;background:#0b0e14;overflow:hidden;color:#eef3fa;font-family:"Segoe UI",system-ui,sans-serif}
@@ -33,13 +34,11 @@ button{font:inherit;color:inherit;cursor:pointer}
 </head>
 <body>
 <div id="ui">
-  <div id="obj" class="hidden"></div><div id="heat" class="hidden"></div><div id="msg"></div>
-  <div id="hud"><div id="speed">0<span>km/h</span></div><div id="meta"></div><div id="bar"><div id="rpm" style="height:100%;width:0;background:#ffb23e"></div></div></div>
-  <div id="touch"><div><button id="tL">◀</button> <button id="tR">▶</button></div><div><button id="tH">DRIFT</button> <button id="tN">NITRO</button> <button id="tB">FRENO</button> <button id="tG">GAS</button></div></div>
+  <div id="obj" class="hidden"></div><div id="heat" class="hidden" style="display:none"></div><div id="msg"></div>
   <div id="menu" class="panelWrap hidden" style="z-index:10000"><div class="panel">
     <h1>Impostazioni</h1>
     <h2>Grafica</h2><div class="row"><button class="choice" data-q="2">Alta</button><button class="choice" data-q="1">Media</button><button class="choice" data-q="0">Bassa</button></div>
-    <button class="go" id="menuClose">Chiudi</button><p style="font-size:13px;opacity:.6">Frecce/A-D sterzo · W/↑ gas · S/↓ freno · Spazio nitro · Shift/H freno a mano (derapata)</p>
+    <button class="go" id="menuClose">Chiudi</button><p style="font-size:13px;opacity:.6">Tastiera: frecce/A-D sterzo · W/↑ gas · S/↓ freno · Spazio nitro · Shift/H derapata<br>Touch: trascina a sinistra per sterzare · a destra GAS · FRENO · DRIFT · NITRO sotto il pollice</p>
   </div></div>
   <div id="intro" class="panelWrap hidden"><div class="panel"><h2 id="inCh"></h2><h1 id="inT"></h1><p id="inTx"></p><p id="inGoal" style="color:#ffb23e"></p><button class="go" id="inGo">Parti</button></div></div>
   <div id="over" class="panelWrap hidden"><div class="panel"><h1 id="ovT"></h1><p id="ovTx"></p><button class="go" id="ovRetry">Riprova</button><button class="go" id="ovMenu" style="background:#334">Menu</button></div></div>

@@ -43,7 +43,8 @@ export const PROTAGONIST = {
 export const ENVS = {
   city:   { id: 'city',   name: 'Città / Autostrada', desc: 'Asfalto, luci al neon, traffico.', speedLimitKmh: 130 },
   jungle: { id: 'jungle', name: 'Giungla',            desc: 'Vegetazione fitta, strada di fango, poca aderenza.', speedLimitKmh: 90, gripMul: 0.75 },
-  desert: { id: 'desert', name: 'Deserto con dune',   desc: 'Sabbia, dune, cactus, sole a picco.', speedLimitKmh: 110, gripMul: 0.85 }
+  desert: { id: 'desert', name: 'Deserto con dune',   desc: 'Sabbia, dune, cactus, sole a picco.', speedLimitKmh: 110, gripMul: 0.85 },
+  mountain: { id: 'mountain', name: 'Montagna / Passo', desc: 'Tornanti, guardrail, strapiombi e salite.', speedLimitKmh: 90 }
 };
 
 // stats 1..10; topSpeed in km/h. unlock: capitolo completato richiesto (0 = subito)
@@ -137,12 +138,12 @@ const RAW = [
       { type: 'timetrial', text: 'Arriva al rifugio: 6 km di fango in 2:40', target: 6000, time: 160, difficulty: 4, policeLevel: 0 },
       { type: 'escape', text: 'Pick-up dei Serpenti alle spalle: seminali', heatStart: 0.5, difficulty: 5, policeLevel: 2 }
     ] },
-  { title: 'Cap. 4 — Il Prezzo', env: 'jungle', time: 'night', place: 'Giungla, notte fonda',
+  { title: 'Cap. 4 — Il Prezzo', env: 'mountain', time: 'night', place: 'Passo del Lupo, notte fonda',
     introLines: [
       L('nico', 'Tano, quella notte. Bruni c\'era, vero?'),
       L('tano', 'C\'ero pure io, Ruota. Ho visto l\'auto nel fiume. Ho pianto come un fesso.'),
       L('tano', 'Tuo fratello era l\'unico che mi chiamava zio sul serio.'),
-      L('lola', 'Fari dietro la collina. Tanti. Troppi.'),
+      L('lola', 'Fari giù per i tornanti. Tanti. Troppi.'),
       L('tano', 'Bruni vuole il doppio. E stanotte se lo viene a prendere.')
     ],
     outroLines: [
@@ -153,8 +154,8 @@ const RAW = [
       L('lola', 'Lo hanno preso. E io ho un messaggio: «Deserto. Vieni solo.»')
     ],
     missions: [
-      { type: 'survive', text: 'Le volanti di Bruni vi braccano: resisti 2:20', time: 140, difficulty: 6, policeLevel: 3 },
-      { type: 'distance', text: 'Porta Lola fuori dalla giungla: 7 km', target: 7000, difficulty: 6, policeLevel: 2 }
+      { type: 'survive', text: 'Sul passo le volanti di Bruni vi braccano: resisti 2:20', time: 140, difficulty: 6, policeLevel: 3 },
+      { type: 'distance', text: 'Porta Lola giù dal passo: 7 km', target: 7000, difficulty: 6, policeLevel: 2 }
     ] },
   { title: 'Cap. 5 — Mare di Sabbia', env: 'desert', time: 'day', place: 'Deserto, 45 gradi',
     introLines: [
@@ -215,8 +216,8 @@ function emit(n, d) { try { S.ctx && S.ctx.onEvent && S.ctx.onEvent(n, d || {});
 function el(tag, css, html) { const e = document.createElement(tag); if (css) e.style.cssText = css; if (html != null) e.innerHTML = html; return e; }
 function fmt(s) { s = Math.max(0, s); return Math.floor(s / 60) + ':' + String(Math.floor(s % 60)).padStart(2, '0'); }
 function setPaused(p) { S.paused = p; emit('pause', { paused: p }); }
-const BTN = 'display:block;width:100%;text-align:left;margin:6px 0;padding:10px 14px;font-size:16px;border:0;color:#fff;cursor:pointer;background:#1d3557';
-const BOX = 'background:rgba(10,10,14,.92);padding:26px;font-family:system-ui,sans-serif;color:#fff;max-width:560px;width:92%;max-height:88vh;overflow:auto';
+const BTN = 'display:block;width:100%;text-align:left;margin:7px 0;padding:12px 16px;font-size:16px;font-weight:600;border:1px solid rgba(140,220,255,.2);border-radius:12px;color:#eaf6ff;cursor:pointer;background:linear-gradient(90deg,rgba(34,225,255,.10),rgba(255,255,255,.03))';
+const BOX = 'background:linear-gradient(180deg,rgba(16,20,34,.95),rgba(8,10,18,.95));border:1px solid rgba(140,220,255,.18);border-top:2px solid #22e1ff;border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.5);padding:26px;font-family:system-ui,sans-serif;color:#fff;max-width:560px;width:92%;max-height:88vh;overflow:auto';
 
 function applyEnv(env) {
   S.env = ENVS[env] ? env : 'city';
@@ -233,11 +234,11 @@ function applyCar(id) {
 function showOverlay(title, text, btn, cb) {
   setPaused(true);
   S.overlay.innerHTML = '';
-  const box = el('div', 'max-width:640px;padding:32px;background:rgba(10,10,14,.88);border-left:4px solid #e63946;font-family:system-ui,sans-serif;color:#fff;');
+  const box = el('div', 'max-width:640px;padding:32px;background:linear-gradient(180deg,rgba(16,20,34,.94),rgba(8,10,18,.94));border:1px solid rgba(140,220,255,.18);border-left:3px solid #ff2d6f;border-radius:18px;font-family:system-ui,sans-serif;color:#fff;');
   box.appendChild(el('div', 'font-size:13px;letter-spacing:3px;color:#e63946;margin-bottom:8px', PROTAGONIST.name.toUpperCase()));
   box.appendChild(el('h2', 'margin:0 0 14px;font-size:28px', title));
   box.appendChild(el('p', 'font-size:18px;line-height:1.5;margin:0 0 22px;opacity:.92', text));
-  const b = el('button', 'padding:10px 26px;font-size:17px;background:#e63946;color:#fff;border:0;cursor:pointer;font-weight:700', btn);
+  const b = el('button', 'padding:12px 28px;font-size:17px;background:linear-gradient(90deg,#ff2d6f,#ff5a3c);border-radius:12px;box-shadow:0 0 18px rgba(255,45,111,.35);color:#fff;border:0;cursor:pointer;font-weight:700', btn);
   b.onclick = () => { S.overlay.style.display = 'none'; setPaused(false); cb && cb(); };
   box.appendChild(b);
   S.overlay.appendChild(box);
@@ -436,7 +437,7 @@ export function init(ctx) {
   S.ctx = ctx; load();
   const parent = (ctx.ui && ctx.ui.appendChild) ? ctx.ui : document.body;
   S.root = el('div', 'position:fixed;inset:0;pointer-events:none;z-index:50');
-  S.hud = el('div', 'position:absolute;top:14px;left:14px;min-width:260px;padding:10px 14px;background:rgba(0,0,0,.55);color:#fff;font-family:system-ui,sans-serif;display:none');
+  S.hud = el('div', 'position:absolute;top:14px;left:14px;min-width:240px;padding:10px 14px;background:rgba(0,0,0,.55);color:#fff;font-family:system-ui,sans-serif;display:none'); S.hud.id = 'storyHud';
   S.overlay = el('div', 'position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.45);pointer-events:auto');
   S.menu = el('div', 'position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.6);pointer-events:auto');
   S.root.append(S.hud, S.overlay, S.menu);

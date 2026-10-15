@@ -156,6 +156,7 @@ export function update(dt, ctx = S.ctx) {
     let want = v.cruise * Math.min(1.6, S.intensity * 0.5 + 0.5);
     const braking = gap < 25 && who && who.speed < v.speed;
     if (braking) want = Math.min(want, who.speed - (gap < 12 ? 6 : 0));
+    if (ctx.road.curveLimit) want = Math.min(want, ctx.road.curveLimit(-m.position.z)); // rallenta prima di curve e tornanti
     v.speed += Math.sign(want - v.speed) * Math.min(Math.abs(want - v.speed), (braking ? 14 : 5) * dt);
     v.think -= dt;
     if (v.signal === 0 && v.think <= 0) {
@@ -211,7 +212,7 @@ export function update(dt, ctx = S.ctx) {
 function buildHud(ctx) {
   if (typeof document === 'undefined') return;
   S.hud?.root.remove();
-  const root = document.createElement('div');
+  const root = document.createElement('div'); root.id = 'diffHud';
   root.style.cssText = 'position:fixed;bottom:200px;left:18px;z-index:20;font:600 14px system-ui,sans-serif;color:#fff;text-shadow:0 1px 3px #000;pointer-events:none';
   root.innerHTML = `<div>Salute</div><div style="width:200px;height:12px;background:#0008;border:1px solid #fff6;border-radius:6px;overflow:hidden">
     <div data-h style="height:100%;width:100%;background:#3ddc84;transition:width .2s"></div></div>

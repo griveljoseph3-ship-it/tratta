@@ -36,3 +36,10 @@ Comandi: frecce o WASD, Spazio = nitro, Esc = capitoli. Su touch: pulsanti a sch
 - Guida: molta più aderenza; derapata col freno a mano (pulsante DRIFT / Shift / H); testacoda solo esagerando col freno a mano.
 - Grafica: chiome e tronchi tondi, palazzi con balconi, marcapiani e zoccolo.
 - `node tests-perf.mjs URL 1 small` misura i tempi JS per frame con CPU rallentata 4x.
+
+## v7 — Fondazione (strada su spline + modelli 3D)
+- Niente più geometria procedurale per auto e scenografia: modelli Kenney (CC0) ottimizzati in `assets/` (meshopt + webp), caricati da `models.js` e disegnati con InstancedMesh (`world.js`). Crediti in `assets/CREDITS.md`.
+- `road.js`: strada su spline con curve, salite, dossi, salti (si vola e si atterra) e il nuovo ambiente **Montagna**, con tornanti a 180°, guardrail, parete e dirupo. Il Cap. 4 ora si gioca al Passo del Lupo.
+- Traffico e polizia seguono la spline e rallentano prima delle curve.
+- Nuovo HUD noir-neon: tachimetro con arco dei giri, marcia, nitro e HP; minimappa; stelle animate. Comandi touch: slider di sterzo a sinistra, cluster GAS/FRENO/DRIFT/NITRO a destra con glow e vibrazione.
+- Stato rispetto alla specifica: vedi `STATUS.md`.
