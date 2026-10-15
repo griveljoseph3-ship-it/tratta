@@ -46,7 +46,7 @@ export function getState() {
 
 const lanesOf = ctx => ctx.road?.lanes || [-5.25, -1.75, 1.75, 5.25];
 const fwd = ctx => ctx.road?.forward ?? -1;
-const pPos = p => ({ x: p.x ?? p.mesh?.position.x ?? 0, z: p.z ?? p.mesh?.position.z ?? 0 });
+const _pp = { x: 0, z: 0 }; const pPos = p => { _pp.x = p.x ?? p.mesh?.position.x ?? 0; _pp.z = p.z ?? p.mesh?.position.z ?? 0; return _pp; };
 
 function makeVehicle(THREE, truck) {
   const g = new THREE.Group();
@@ -69,7 +69,7 @@ function makeVehicle(THREE, truck) {
     brake.position.set(s * (W / 2 - 0.25), shared ? (truck ? 0.9 : 0.75) : H * 0.45, L / 2 + 0.03); g.add(brake);
     const ind = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.15, 0.06), mk(0x442200));
     ind.position.set(s * (W / 2 - 0.05), shared ? (truck ? 0.9 : 0.75) : H * 0.45, L / 2 + 0.04); g.add(ind);
-    const indF = ind.clone(); indF.material = ind.material; indF.position.z = -L / 2 - 0.02; g.add(indF);
+
     lights[s < 0 ? 'brakeL' : 'brakeR'] = brake; lights[s < 0 ? 'indL' : 'indR'] = ind;
   }
   return { mesh: g, lights, L, W, truck };
@@ -79,7 +79,7 @@ export function init(ctx) {
   S.ctx = ctx; reset(ctx); buildHud(ctx);
 }
 export function reset(ctx = S.ctx) {
-  for (const v of S.vehicles) ctx?.scene?.remove(v.mesh);
+  for (const v of S.vehicles) { ctx?.scene?.remove(v.mesh); POOL.push(v); }
   S.vehicles = []; S.seeded = false; newRunProfile(); S.elapsed = 0; S.combo = 0; S.score = 0; S.destroyed = false; S.invuln = 0; S.lastLvl = 1;
   if (ctx?.player) ctx.player.health = 100;
   renderHud();
@@ -92,7 +92,8 @@ function addVehicle(ctx, P, lane, rel, speed, truck) {
   const { THREE, scene, player } = ctx; const lanes = lanesOf(ctx); const pp = pPos(player);
   const z = pp.z + fwd(ctx) * rel;
   if (S.vehicles.some(o => (o.lane === lane || o.targetLane === lane) && Math.abs(o.mesh.position.z - z) < 16)) return null;
-  const v = makeVehicle(THREE, truck);
+  // pool: niente nuove mesh/materiali durante la guida (evita GC e compilazioni shader a metà corsa)
+  const pi = POOL.findIndex(o => o.truck === truck); const v = pi >= 0 ? POOL.splice(pi, 1)[0] : makeVehicle(THREE, truck); v.mesh.rotation.set(0, 0, 0);
   Object.assign(v, { lane, targetLane: lane, x: lanes[lane], speed, cruise: speed, signal: 0, signalT: 0,
     blink: 0, nearDone: false, hit: false, think: rand() * 2, x0: 0 });
   v.mesh.position.set(v.x, 0, z); v.mesh.rotation.y = fwd(ctx) < 0 ? 0 : Math.PI;
@@ -115,17 +116,20 @@ function spawnEvent(ctx, P) {
   else if (type === 'jam') { for (let k = 0; k < 6; k++) addVehicle(ctx, P, (rand() * n) | 0, rel + k * 9, 9 + rand() * 4, false); flash('Coda più avanti: attento!', '#ffd23f'); }
   else { const v = addVehicle(ctx, P, n - 1, -45, (ctx.player.speed || 20) + 12, false); if (v) v.cruise = v.speed; }
 }
-export function getVehicles() { return S.vehicles.map(v => ({ x: v.x, z: v.mesh.position.z, speed: v.speed, L: v.L })); }
+const VPOOL = [], POOL = [];
+export function prewarm(ctx, n = 24) { for (let i = 0; i < n; i++) POOL.push(makeVehicle(ctx.THREE, i % 5 === 0)); return POOL.map(v => v.mesh); }
+ export function getVehicles() { VPOOL.length = S.vehicles.length; S.vehicles.forEach((v, i) => { const o = VPOOL[i] || (VPOOL[i] = {}); o.x = v.x; o.z = v.mesh.position.z; o.speed = v.speed; o.L = v.L; }); return VPOOL; }
 
+const _gapR = { gap: 0, who: null }, _plObs = { speed: 0 };
 function aheadGap(v, lane, ctx) {
-  const f = fwd(ctx); let best = Infinity, who = null;
+  const f = fwd(ctx); let best = Infinity, who = null; const R = _gapR;
   for (const o of S.vehicles) if (o !== v && (o.lane === lane || o.targetLane === lane)) {
     const d = (o.mesh.position.z - v.mesh.position.z) * f;
     if (d > 0 && d < best) { best = d; who = o; }
   }
   const pl = ctx.player; // anche il giocatore è un ostacolo: i civili non ti tamponano
-  if (pl && Math.abs((pl.x ?? 0) - lanesOf(ctx)[lane]) < 2.4) { const d = ((pl.z ?? 0) - v.mesh.position.z) * f; if (d > 0 && d < best) { best = d; who = { speed: pl.speed || 0 }; } }
-  return { gap: best, who };
+  if (pl && Math.abs((pl.x ?? 0) - lanesOf(ctx)[lane]) < 2.4) { const d = ((pl.z ?? 0) - v.mesh.position.z) * f; if (d > 0 && d < best) { best = d; _plObs.speed = pl.speed || 0; who = _plObs; } }
+  R.gap = best; R.who = who; return R;
 }
 
 export function update(dt, ctx = S.ctx) {
@@ -196,7 +200,7 @@ export function update(dt, ctx = S.ctx) {
       flash(`Sorpasso al limite! +${bonus}${S.combo > 1 ? `  combo x${S.combo}` : ''}`, '#ffd23f');
     }
     const rel = (m.position.z - pp.z) * f;
-    if (rel < -60 || rel > 400) { ctx.scene.remove(m); S.vehicles.splice(i, 1); }
+    if (rel < -60 || rel > 400) { ctx.scene.remove(m); POOL.push(v); S.vehicles.splice(i, 1); }
   }
   S.invuln -= dt; S.comboT -= dt; if (S.comboT <= 0) S.combo = 0;
   S.score += (player.speed || 0) * dt * 0.1;
@@ -215,7 +219,9 @@ function buildHud(ctx) {
   (ctx.ui instanceof HTMLElement ? ctx.ui : document.body).appendChild(root);
   S.hud = { root, h: root.querySelector('[data-h]'), i: root.querySelector('[data-i]'), f: root.querySelector('[data-f]'), ft: 0 };
 }
-function renderHud() {
+let _hudLast = 0;
+function renderHud(force) {
+  const _now = performance.now(); if (!force && _now - _hudLast < 100) return; _hudLast = _now; // HUD a 10 Hz
   const H = S.hud; if (!H) return; const hp = S.ctx?.player?.health ?? 100;
   H.h.style.width = hp + '%'; H.h.style.background = hp > 60 ? '#3ddc84' : hp > 30 ? '#ffb020' : '#ff4040';
   H.i.textContent = `Difficoltà: ${PRESETS[S.diff].name} · Traffico x${S.intensity.toFixed(2)} · Punti ${Math.round(S.score)}`;

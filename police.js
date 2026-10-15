@@ -111,7 +111,10 @@ function makeHud() {
   return el;
 }
 
-function renderHud() {
+let _hudLast = 0; const CARPOOL = [];
+export function prewarm(n = 7) { for (let i = 0; i < n; i++) CARPOOL.push(makeCar()); return CARPOOL; }
+function renderHud(force) {
+  const _now = performance.now(); if (!force && _now - _hudLast < 100) return; _hudLast = _now; // HUD a 10 Hz
   if (!hud) return;
   const s = hud.querySelector('[data-s]'), t = hud.querySelector('[data-t]'), bar = hud.querySelector('[data-b]');
   if (busted) { s.textContent = 'ARRESTATO'; t.textContent = 'La polizia ti ha fermato!'; return; }
@@ -151,9 +154,9 @@ export function nearest(px = 0) { let b = null; for (const u of units) if (u.ali
 export function getState() { return { heat, cooldown, units: units.length, busted, bustMeter }; }
 
 export function reset() {
-  for (const u of units) unitsRoot.remove(u.mesh);
+  for (const u of units) { unitsRoot.remove(u.mesh); CARPOOL.push(u.mesh); }
   for (const b of blocks) unitsRoot.remove(b.mesh);
-  units.length = 0; blocks.length = 0;
+  units.length = 0; blocks.length = 0; _hudLast = 0;
   if (heli) { unitsRoot.remove(heli.mesh); S.remove(heli.mesh.userData.target); heli = null; }
   heat = 0; notoriety = 0; cooldown = 0; bustMeter = 0; busted = false;
   renderHud();
@@ -173,7 +176,7 @@ export function init(ctx) {
 function spawnUnit(ctx, behind) {
   const L = lanes(ctx);
   const lane = (rand() * L.length) | 0;
-  const mesh = makeCar(); unitsRoot.add(mesh);
+  const mesh = CARPOOL.pop() || makeCar(); mesh.rotation.set(0, 0, 0); unitsRoot.add(mesh);
   const pS = ctx.player.speed || 20;
   const u = { mesh, x: L[lane], vx: 0, z: behind ? -45 - rand() * 25 : 150 + rand() * 70,
     speed: behind ? pS * (1.05 + rand() * .15) : pS * (.35 + rand() * .3), role: behind ? 'chase' : 'block',
@@ -199,16 +202,17 @@ function assignRoles(L, px) {
   });
 }
 
+const _tn = { hit: null, dodge: 0 };
 function trafficNear(ctx, u, pz) {
   const list = ctx.traffic?.() || [];
-  let hit = null, dodge = 0;
+  let hit = null, dodge = 0; const out = _tn;
   for (const v of list) {
     const rz = (pz - v.z) - u.z; // >0: traffico davanti all'unità
     const dx = v.x - u.x;
     if (Math.abs(rz) < 4.4 && Math.abs(dx) < 2) hit = v;
     else if (rz > 0 && rz < 18 + u.speed * .4 && Math.abs(dx) < 2.6) dodge += dx > 0 ? -1 : 1;
   }
-  return { hit, dodge };
+  out.hit = hit; out.dodge = dodge; return out;
 }
 
 function spawnBlock(ctx, type) {
@@ -265,7 +269,8 @@ export function update(dt, ctx) {
 
   // spawn
   spawnTimer -= dt;
-  if (units.filter(u => u.alive).length < cfg.max && spawnTimer <= 0) {
+  let aliveN = 0; for (const u of units) if (u.alive) aliveN++;
+  if (aliveN < cfg.max && spawnTimer <= 0) {
     spawnUnit(ctx, rand() < 0.6 - heat * .06); spawnTimer = (3.8 - heat * 0.45) * (.7 + rand() * .6);
   }
   if (heat >= 3) {
@@ -361,7 +366,7 @@ export function update(dt, ctx) {
   });
   for (let i = units.length - 1; i >= 0; i--) {
     const u = units[i];
-    if (u.z < -140 || u.z > 260 || u.crash > 6) { unitsRoot.remove(u.mesh); units.splice(i, 1); }
+    if (u.z < -140 || u.z > 260 || u.crash > 6) { unitsRoot.remove(u.mesh); CARPOOL.push(u.mesh); units.splice(i, 1); }
   }
 
   // posti di blocco e chiodi
@@ -394,6 +399,6 @@ export function update(dt, ctx) {
   else bustMeter -= dt * 0.25;
   if (p.health != null && p.health <= 0) bustMeter = 1;
   bustMeter = Math.max(0, Math.min(1, bustMeter));
-  if (bustMeter >= 1) { busted = true; emit(ctx, 'busted', { heat }); }
+  if (bustMeter >= 1) { busted = true; emit(ctx, 'busted', { heat }); renderHud(true); }
   renderHud();
 }

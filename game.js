@@ -16,7 +16,8 @@ const $ = id => document.getElementById(id);
 const LANES = 4, LW = 3.6, ROAD_W = LANES * LW;
 const road = { lanes: LANES, laneWidth: LW, width: ROAD_W, laneX: i => (i - (LANES - 1) / 2) * LW, halfWidth: ROAD_W / 2 };
 
-let quality = +(localStorage.getItem('tratta-q') ?? 2);
+const IS_TOUCH = matchMedia('(pointer: coarse)').matches || /iPad|iPhone|Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
+let quality = +(localStorage.getItem('tratta-q') ?? (IS_TOUCH ? 1 : 2)); // iPad: Media di default
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; renderer.toneMappingExposure = 0.9;
@@ -39,7 +40,7 @@ scene.add(sun, sun.target);
 // ---------- Strada con curve: centro strada cx(z) ----------
 // Curve diverse a ogni partita (parametri estratti dal seme della corsa in resetRun)
 let A1 = 90, K1 = 1 / 450, A2 = 35, K2 = 1 / 180, P1 = 0, P2 = 1;
-function randomizeRoad() { A1 = RNG.range(55, 92); K1 = 1 / RNG.range(440, 580); A2 = RNG.range(16, 34); K2 = 1 / RNG.range(175, 240); P1 = RNG.range(0, 6.28); P2 = RNG.range(0, 6.28); }
+function randomizeRoad() { road.ver = (road.ver || 0) + 1; A1 = RNG.range(55, 92); K1 = 1 / RNG.range(440, 580); A2 = RNG.range(16, 34); K2 = 1 / RNG.range(175, 240); P1 = RNG.range(0, 6.28); P2 = RNG.range(0, 6.28); }
 const cx = z => A1 * Math.sin(z * K1 + P1) + A2 * Math.sin(z * K2 + P2) - A1 * Math.sin(P1) - A2 * Math.sin(P2);
 const dcx = z => A1 * K1 * Math.cos(z * K1 + P1) + A2 * K2 * Math.cos(z * K2 + P2);
 const ddcx = z => -A1 * K1 * K1 * Math.sin(z * K1 + P1) - A2 * K2 * K2 * Math.sin(z * K2 + P2);
@@ -86,6 +87,7 @@ function makeRibbon(x0, x1, y, mat, vLen) {
   const pos = new Float32Array(ROWS * 2 * 3), uv = new Float32Array(ROWS * 2 * 2), idx = [];
   for (let r = 0; r < ROWS - 1; r++) { const a = r * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
   geo.setIndex(idx); geo.setAttribute('position', new THREE.BufferAttribute(pos, 3)); geo.setAttribute('uv', new THREE.BufferAttribute(uv, 2));
+  const nrm = new Float32Array(ROWS * 2 * 3); for (let i = 1; i < nrm.length; i += 3) nrm[i] = 1; geo.setAttribute('normal', new THREE.BufferAttribute(nrm, 3)); // strada piatta: normali fisse
   const m = new THREE.Mesh(geo, mat); m.receiveShadow = true; m.frustumCulled = false; scene.add(m);
   return { m, x0, x1, y, vLen };
 }
@@ -96,19 +98,21 @@ const ribbons = [
   makeRibbon(-TOTAL_W / 2 - CURB, -TOTAL_W / 2, 0.1, curbMat, 2),
   makeRibbon(TOTAL_W / 2, TOTAL_W / 2 + CURB, 0.1, curbMat, 2),
 ];
+let ribZ = null, ribV = -1;
 function updateRibbons(pz) {
   const z0 = Math.floor(pz / STEP) * STEP + 60;
+  if (z0 === ribZ && ribV === road.ver) return; ribZ = z0; ribV = road.ver;
   for (const rb of ribbons) {
     const p = rb.m.geometry.attributes.position.array, u = rb.m.geometry.attributes.uv.array;
     for (let r = 0; r < ROWS; r++) {
       const z = z0 - r * STEP, c = cx(z), s = dcx(z), n = 1 / Math.sqrt(1 + s * s);
       // normale laterale alla curva
       const nx = n, nz = -s * n;
-      p.set([c + rb.x0 * nx, rb.y, z + rb.x0 * nz, c + rb.x1 * nx, rb.y, z + rb.x1 * nz], r * 6);
-      u.set([0, -z / rb.vLen, 1, -z / rb.vLen], r * 4);
+      const o = r * 6, q = r * 4, v = -z / rb.vLen;
+      p[o] = c + rb.x0 * nx; p[o + 1] = rb.y; p[o + 2] = z + rb.x0 * nz; p[o + 3] = c + rb.x1 * nx; p[o + 4] = rb.y; p[o + 5] = z + rb.x1 * nz;
+      u[q] = 0; u[q + 1] = v; u[q + 2] = 1; u[q + 3] = v;
     }
     rb.m.geometry.attributes.position.needsUpdate = rb.m.geometry.attributes.uv.needsUpdate = true;
-    rb.m.geometry.computeVertexNormals(); rb.m.geometry.computeBoundingSphere();
   }
 }
 const groundMat = new THREE.MeshStandardMaterial({ map: groundTex.city, roughness: 1 });
@@ -213,7 +217,7 @@ function setEnvironment(env) {
   if (envMap) envMap.dispose(); skyScene.add(sky); envMap = pmrem.fromScene(skyScene, 0.04).texture; scene.add(sky); scene.environment = envMap;
   road.grip = env === 'jungle' ? .75 : env === 'desert' ? .85 : 1;
   if (Env) {
-    try { envCtx.shadows = quality > 0; Env.setEnvironment(env, envCtx); } catch (e) { console.error(e); }
+    try { envCtx.shadows = quality === 2; Env.setEnvironment(env, envCtx); } catch (e) { console.error(e); }
     hemi.visible = sun.visible = false; // luci e nebbia dal modulo ambienti (un sole + emisfero)
   } else { hemi.visible = sun.visible = true; scene.fog = scene.fog || new THREE.FogExp2(L.fog, L.density); }
   scene.traverse(o => { if (o.userData) delete o.userData.base; }); if (scene.fog) delete scene.fog._base;
@@ -256,6 +260,12 @@ function makeCar(kind = 'traffic', opts = {}) {
   let name = kind === 'traffic' ? pick(TRAFFIC) : kind === 'truck' ? pick(['delivery', 'truck-flat']) : (MODELS[kind] ? kind : TYPE_MODEL[kind] || 'sedan');
   const M = MODELS[name]; const g = new THREE.Group();
   if (!M) return Cars ? Cars.makeCar(kind === 'traffic' ? 'traffic' : name, opts) : fallbackCar(opts.color ?? 0x8899aa);
+  if (kind !== 'player' && !opts.full) { // traffico/polizia: un'unica mesh con geometria condivisa (1 draw call per auto)
+    if (!M.merged) { M.root.updateMatrixWorld(true); const parts = [], mats = []; M.root.traverse(o => { if (o.isMesh) { const ge = o.geometry.clone().applyMatrix4(o.matrixWorld); for (const k of Object.keys(ge.attributes)) if (!['position', 'normal', 'uv'].includes(k)) ge.deleteAttribute(k); parts.push(ge); mats.push(o.material); } });
+      try { M.merged = BufferGeometryUtils.mergeGeometries(parts, false); M.mat = mats[0]; } catch (e) { M.merged = null; } }
+    if (M.merged) { const len = LEN[name] || 4.4, s = len / Math.max(M.size.z, M.size.x); const me = new THREE.Mesh(M.merged, M.mat); me.castShadow = true;
+      me.scale.setScalar(s); me.position.set(M.cx * s, -M.minY * s, M.cz * s); me.rotation.y = Math.PI; g.add(me); g.userData.wheels = []; g.userData.size = { L: len, W: M.size.x * s }; return g; }
+  }
   const inst = M.root.clone(true);
   const len = LEN[name] || 4.4, s = len / Math.max(M.size.z, M.size.x);
   inst.scale.setScalar(s); inst.position.set(-M.cx * s, -M.minY * s, -M.cz * s);
@@ -282,22 +292,23 @@ function physOf(c) {
 function buildPlayer() {
   if (player.mesh) laneSpace.remove(player.mesh);
   const col = carDef.color ? new THREE.Color(carDef.color).getHex() : undefined;
-  player.mesh = new THREE.Group(); player.body = makeCar(carDef.type || 'berlina', { color: col }); player.mesh.add(player.body, headlight, hlTarget, coneMesh); laneSpace.add(player.mesh);
+  player.mesh = new THREE.Group(); player.body = makeCar(carDef.type || 'berlina', { color: col, full: true }); player.mesh.add(player.body, headlight, hlTarget, coneMesh); laneSpace.add(player.mesh);
   player.phys = physOf(carDef);
 }
 function setCar(c) { if (!c) return; carDef = typeof c === 'string' ? (CARS.find(x => x.id === c) || CARS[0]) : c; buildPlayer(); }
 
 // ---------- Post (niente bloom: luce sobria) ----------
-let composer, dynPR = 9, lowT = 0, highT = 0;
+let composer, useComposer = false, dynPR = 9, lowT = 0, highT = 0;
 function setupPost() {
-  const pr = Math.min([0.75, 1, Math.min(devicePixelRatio, 1.5)][quality], dynPR);
+  const pr = Math.min([0.7, Math.min(devicePixelRatio, 1), Math.min(devicePixelRatio, 1.25)][quality], dynPR);
   renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight);
-  renderer.shadowMap.enabled = quality > 0; sun.castShadow = quality > 0;
+  renderer.shadowMap.enabled = quality === 2; sun.castShadow = quality === 2;
   const ms = quality === 2 ? 1536 : 1024; sun.shadow.mapSize.set(ms, ms); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; }
   scene.traverse(o => { if (o.material) o.material.needsUpdate = true; });
   composer = new EffectComposer(renderer); composer.addPass(new RenderPass(scene, camera));
   composer.addPass(new OutputPass());
-  if (quality === 2 && pr < 1.3) composer.addPass(new SMAAPass(innerWidth * pr, innerHeight * pr));
+  if (quality === 2 && !IS_TOUCH) composer.addPass(new SMAAPass(innerWidth * pr, innerHeight * pr));
+  useComposer = quality === 2 && !IS_TOUCH; // altrimenti render diretto: niente passaggi a schermo intero extra
   composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight);
 }
 addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); composer.setSize(innerWidth, innerHeight); });
@@ -306,7 +317,7 @@ addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; cam
 const keys = {};
 for (const ev of ['pointerdown', 'keydown', 'touchstart']) addEventListener(ev, () => Audio.unlock(), { passive: true });
 addEventListener('keydown', e => { keys[e.code] = true; if (e.code === 'Space') e.preventDefault(); }); addEventListener('keyup', e => keys[e.code] = false);
-for (const [id, k] of [['tL', 'ArrowLeft'], ['tR', 'ArrowRight'], ['tB', 'ArrowDown'], ['tG', 'ArrowUp'], ['tN', 'Space']]) {
+for (const [id, k] of [['tL', 'ArrowLeft'], ['tR', 'ArrowRight'], ['tB', 'ArrowDown'], ['tG', 'ArrowUp'], ['tN', 'Space'], ['tH', 'Handbrake']]) {
   const b = $(id); const up = e => { keys[k] = false; if (k === 'Space') keys.ArrowUp = keys._gasHeld || false; };
   b.addEventListener('pointerdown', e => { e.preventDefault(); try { b.setPointerCapture?.(e.pointerId); } catch {} keys[k] = true; if (k === 'ArrowUp') keys._gasHeld = true; if (k === 'Space') keys.ArrowUp = true; });
   for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, e => { if (k === 'ArrowUp') keys._gasHeld = false; up(e); });
@@ -327,6 +338,7 @@ road.lanes = [0, 1, 2, 3].map(road.laneX); road.forward = -1; road.zOffset = 0; 
 const ctx = { THREE, scene, camera, renderer, player, road, ui: $('ui'), hud: ui, makeCar, keys, setEnvironment, setCar, state: { running: false, paused: false, time: 0 }, onEvent: emit, on, emit };
 window.tratta = ctx; ctx.debug = {};
 const modCtx = Object.create(ctx); modCtx.scene = laneSpace; // i moduli piazzano in coordinate di corsia
+let hudT = 0;
 let Story, Police, Diff, shake = 0, slowT = 0, hitStop = 0;
 // ---------- Radio di bordo: Lola, Tano (poi Dario) reagiscono a quello che fai ----------
 const radioEl = document.createElement('div');
@@ -423,23 +435,28 @@ function updatePlayer(dt) {
   player.steer += (st - player.steer) * Math.min(1, dt * (st ? 4 : 6));
   const spd = Math.max(player.speed, 1);
   let yaw = -player.steer * P.steer * 1.6 / (1 + spd / 16);
-  const grip = P.grip * env;
+  // Aderenza arcade-sim: tanta presa. Derapata SOLO col freno a mano (o sterzo estremo ad alta velocità);
+  // testacoda solo se esageri davvero (freno a mano + tutto sterzo a velocità alta, senza controsterzare).
+  const hb = !!(k.KeyH || k.ShiftLeft || k.ShiftRight || k.Handbrake) && spd > 10;
+  const gripBase = (P.grip * 1.35 + 2) * env;           // ~15 m/s² laterali per la berlina
+  const grip = gripBase * (hb ? .5 : 1);
   const lat = Math.abs(yaw) * spd;
-  // perdita di controllo: oltre il limite di aderenza (curva troppo forte / sovrasterzo) l'auto va in testacoda.
-  // Recuperabile controsterzando e togliendo gas; se insisti fai un giro completo.
-  const over = lat - grip * (brake ? 1.05 : 1.3);
-  if (over > 0 && spd > 22 && !player.spinRate) { player.spinRate = Math.sign(yaw) * Math.min(3, over * .35); emit('spinStart', {}); }
+  const extreme = !hb && lat > gripBase * 1.45 && spd > 38 && Math.abs(player.steer) > .9;
+  if (hb || extreme) { // derapata progressiva e controllabile
+    player.drift = Math.min(1, player.drift + dt * (hb ? 2.2 : 1.2));
+    if (lat > grip) { yaw = Math.sign(yaw) * (grip / spd) * (1 + player.drift * .45); player.speed -= (lat - grip) * .25 * dt; }
+    player.overT = (player.overT || 0) + (hb && Math.abs(player.steer) > .95 && spd > 34 && !(st && Math.sign(-st) !== Math.sign(yaw)) ? dt : -dt * 2);
+  } else {
+    player.drift = Math.max(0, player.drift - dt * 2.2); player.overT = Math.max(0, (player.overT || 0) - dt * 2);
+    if (lat > grip) { yaw = Math.sign(yaw) * grip / spd; player.speed -= (lat - grip) * .3 * dt; } // sottosterzo dolce: allarga la traiettoria
+  }
+  if (player.overT > .9 && !player.spinRate) { player.spinRate = Math.sign(yaw) * 2.2; player.overT = 0; emit('spinStart', {}); }
   if (player.spinRate) {
-    const counter = st && Math.sign(-st) === Math.sign(player.spinRate) ? 1 : 0; // controsterzo: st ha segno opposto a yaw
-    player.spinRate += Math.sign(player.spinRate) * (gas ? 1.0 : .5) * dt - player.spinRate * (counter ? 2.4 : .5) * dt;
+    const counter = st && Math.sign(-st) === -Math.sign(player.spinRate) ? 1 : 0; // controsterzo = sterzo opposto alla rotazione
+    player.spinRate += Math.sign(player.spinRate) * (gas ? .6 : .2) * dt - player.spinRate * (counter ? 3 : .9) * dt;
     player.spin += player.spinRate * dt; player.speed *= 1 - Math.min(.5, Math.abs(player.spinRate) * .18) * dt; player.drift = 1;
     if (Math.abs(player.spinRate) < .35 || player.speed < 3) { player.spinRate = 0; player.spinRecover = true; }
   } else if (player.spinRecover) { const tgt = Math.round(player.spin / (Math.PI * 2)) * Math.PI * 2; player.spin += (tgt - player.spin) * Math.min(1, dt * 3); if (Math.abs(tgt - player.spin) < .02) { player.spin = 0; player.spinRecover = false; } }
-  if (lat > grip) { // oltre il limite: sottosterzo/derapata
-    player.drift = Math.min(1, player.drift + dt * 2);
-    yaw = Math.sign(yaw) * grip / spd * 1.1;
-    player.speed -= (lat - grip) * .35 * dt;
-  } else player.drift = Math.max(0, player.drift - dt * 1.5);
   // la strada curva sotto di te: se non sterzi, vai dritto verso il bordo
   player.h += (yaw + ddcx(player.z) * spd) * dt;
   if (!st) player.h *= 1 - Math.min(1, dt * .9); // allineamento naturale (aiuto guida)
@@ -479,7 +496,7 @@ function bend() {
 }
 function unbend() { for (let i = 0; i < bent.length; i += 4) { const o = bent[i]; o.position.x = bent[i + 1]; o.position.z = bent[i + 2]; o.rotation.y = bent[i + 3]; } bent.length = 0; }
 
-const camPos = new THREE.Vector3(), look = new THREE.Vector3();
+const camPos = new THREE.Vector3(), look = new THREE.Vector3(), camBase = new THREE.Vector3(0, 3, 8), camVel = new THREE.Vector3(); let camT = 0;
 function updateCamera(dt) {
   const sp = player.speed, nit = keys.Space && player.nitro > 0 && (keys.ArrowUp || keys.KeyW);
   camera.fov += ((60 + sp * .22 + (nit ? 9 : 0) - (slowT > 0 ? 8 : 0)) - camera.fov) * Math.min(1, dt * 3); camera.updateProjectionMatrix();
@@ -487,9 +504,14 @@ function updateCamera(dt) {
   const dist = 7 + sp * .02, hgt = 2.5 + sp * .006;
   const tx = wx + Math.sin(ang) * dist, tz = pz + Math.cos(ang) * dist;
   camPos.set(tx, hgt, tz);
-  camera.position.lerp(camPos, Math.min(1, dt * 7));
-  if (shake > 0) { camera.position.x += (Math.random() - .5) * shake * .5; camera.position.y += (Math.random() - .5) * shake * .3; shake = Math.max(0, shake - dt * 2); }
-  if (sp > 45) camera.position.y += (Math.random() - .5) * (sp - 45) * .001;
+  // molla a smorzamento critico (omega 9): segue senza oscillare né tremolare
+  const w = 9, kx = Math.min(dt, 1 / 30);
+  camBase.x += camVel.x * kx; camBase.y += camVel.y * kx; camBase.z += camVel.z * kx;
+  camVel.x += (-2 * w * camVel.x - w * w * (camBase.x - camPos.x)) * kx; camVel.y += (-2 * w * camVel.y - w * w * (camBase.y - camPos.y)) * kx; camVel.z += (-2 * w * camVel.z - w * w * (camBase.z - camPos.z)) * kx;
+  if (camBase.distanceToSquared(camPos) > 400) { camBase.copy(camPos); camVel.set(0, 0, 0); }
+  camera.position.copy(camBase);
+  camT += dt; if (shake > 0) { camera.position.x += Math.sin(camT * 47) * shake * .25; camera.position.y += Math.sin(camT * 61 + 1) * shake * .15; shake = Math.max(0, shake - dt * 2.5); }
+  if (sp > 45) camera.position.y += Math.sin(camT * 23) * (sp - 45) * .0006;
   const lz = pz - 14; look.set(cx(lz) + player.x * .9, 1.2, lz); camera.lookAt(look);
   sun.position.set(wx + sunDir.x * 150, sunDir.y * 150, pz + sunDir.z * 150); sun.target.position.set(wx, 0, pz - 20);
 }
@@ -500,6 +522,7 @@ function updateHUD() {
   $('rpm').style.width = Math.min(100, player.rpm * 100) + '%'; $('rpm').style.background = player.rpm > .9 ? '#ff4b2b' : '#ffb23e';
 }
 
+const FIXED = 1 / 120; let acc = 0, steps = 0;
 const clock = new THREE.Clock(); let fpsAcc = 0, fpsN = 0;
 function step(dt) {
   try { Story?.update(dt, modCtx); } catch (e) { console.error(e); }
@@ -512,17 +535,22 @@ function step(dt) {
 }
 function loop() {
   requestAnimationFrame(loop);
-  const raw = Math.min(clock.getDelta(), 1 / 20);
+  // Fisica a passo fisso (1/120 s): identica a 60 Hz e a 120 Hz ProMotion, niente scatti legati al frame rate.
+  const raw = Math.min(clock.getDelta(), 1 / 15);
   if (hitStop > 0) { hitStop -= raw; }
   slowT = Math.max(0, slowT - raw); const ts = hitStop > 0 ? 0.05 : slowT > 0 ? 0.35 : 1;
   const dt = raw * ts;
   const n = ctx.debug.substeps || 1; // solo per test automatici
-  for (let i = 0; i < n; i++) step(n > 1 ? 1 / 20 : dt);
-  if (ctx.state.running) updateHUD();
+  const P0 = performance.now();
+  if (n > 1) for (let i = 0; i < n; i++) step(1 / 20);
+  else { acc += dt; let k = 0; while (acc >= FIXED && k++ < 16) { step(FIXED); acc -= FIXED; } if (k >= 16) acc = 0; steps = k; }
+  hudT += raw; if (ctx.state.running && hudT > .1) { hudT = 0; updateHUD(); }
   try { Audio.update({ rpm: player.rpm, speed: ctx.state.running && !ctx.state.paused ? player.speed : 0, throttle: !!(keys.ArrowUp || keys.KeyW), drift: player.drift, siren: ctx.state.running && !ctx.state.cinema ? Police?.nearest?.(player.x) : null, muted: !!ctx.state.cinema || !ctx.state.running }); } catch (e) {}
   updateDust(dt);
   if (player.mesh) { updateCamera(dt); updateScenery(player.z, dt); updateGlows(player.z); updateNeon(player.z); }
-  if (!(ctx.state.cinema && Cinema?.isMenuOpen?.())) { bend(); composer.render(dt); unbend(); }
+  const P1 = performance.now();
+  if (!(ctx.state.cinema && Cinema?.isMenuOpen?.())) { bend(); if (useComposer) composer.render(dt); else renderer.render(scene, camera); unbend(); }
+  if (ctx.debug.prof) { const P2 = performance.now(); ctx.debug.prof.push([P1 - P0, P2 - P1, steps]); }
   fpsAcc += dt; fpsN++; if (fpsAcc > 2) { ctx.state.fps = fpsN / fpsAcc; fpsAcc = fpsN = 0; adaptQuality(ctx.state.fps); }
 }
 
@@ -531,7 +559,7 @@ function adaptQuality(fps) {
   if (!ctx.state.running || ctx.state.paused || ctx.state.cinema || ctx.debug.noAdapt) return;
   const cur = renderer.getPixelRatio();
   if (fps < 45) { highT = 0; if (++lowT >= 2 && cur > .7) { dynPR = Math.max(.7, cur - .15); setupPost(); lowT = 0; } }
-  else if (fps > 58) { lowT = 0; if (++highT >= 4 && dynPR < 9) { dynPR = cur + .1; if (dynPR >= [0.75, 1, Math.min(devicePixelRatio, 1.5)][quality]) dynPR = 9; setupPost(); highT = 0; } }
+  else if (fps > 58) { lowT = 0; if (++highT >= 4 && dynPR < 9) { dynPR = cur + .1; if (dynPR >= [0.7, Math.min(devicePixelRatio, 1), Math.min(devicePixelRatio, 1.25)][quality]) dynPR = 9; setupPost(); highT = 0; } }
 }
 
 // ---------- Polvere/fumo in derapata: pool di Points, costo minimo ----------
@@ -540,7 +568,7 @@ const dustGeo = new THREE.BufferGeometry(); dustGeo.setAttribute('position', new
 const dustMat = new THREE.PointsMaterial({ color: 0xcfc6b8, size: 1.1, transparent: true, opacity: .45, depthWrite: false });
 const dust = new THREE.Points(dustGeo, dustMat); dust.frustumCulled = false; laneSpace.add(dust);
 for (let i = 0; i < DUST_N; i++) dustPos[i * 3 + 1] = -99;
-function emitDust(x, z, k) { for (let n = 0; n < 2; n++) { const i = dustI++ % DUST_N; dustPos.set([x + (RNG.rand() - .5) * 1.6, .3, z], i * 3); dustVel.set([(RNG.rand() - .5) * 2, 1 + RNG.rand(), 2 + RNG.rand() * 2], i * 3); dustLife[i] = .9 * k; } }
+function emitDust(x, z, k) { for (let n = 0; n < 2; n++) { const i = dustI++ % DUST_N, j = i * 3; dustPos[j] = x + (RNG.rand() - .5) * 1.6; dustPos[j + 1] = .3; dustPos[j + 2] = z; dustVel[j] = (RNG.rand() - .5) * 2; dustVel[j + 1] = 1 + RNG.rand(); dustVel[j + 2] = 2 + RNG.rand() * 2; dustLife[i] = .9 * k; } }
 function updateDust(dt) { for (let i = 0; i < DUST_N; i++) { if (dustLife[i] <= 0) continue; dustLife[i] -= dt; for (let a = 0; a < 3; a++) dustPos[i * 3 + a] += dustVel[i * 3 + a] * dt; if (dustLife[i] <= 0) dustPos[i * 3 + 1] = -99; } dustGeo.attributes.position.needsUpdate = true;
   dustMat.color.set(ENV === 'desert' ? 0xe0c08a : ENV === 'jungle' ? 0x7a6040 : 0xcfcfcf); }
 
@@ -647,7 +675,8 @@ async function loadModules() {
       onFree: () => Story.openFreeRoamMenu(), onGarage: () => Story.openGarage(), onSettings: () => { ctx.state.settingsFromMenu = true; ui.show('menu'); } }); };
     Story.setHooks({ mainMenu: ctx.openMainMenu, beforeChapter: i => cut('chapter' + (i + 1)), afterChapter: i => cut('twist' + (i + 1)) });
   }
-  modCtx.traffic = () => Diff?.getVehicles?.() || []; modCtx.shortcutAt = shortcutAt; ctx.debug.shortcuts = shortcuts; ctx.debug.bollards = bollards;
+  let trafCache = [], trafFrame = -1;
+  modCtx.traffic = () => { if (trafFrame !== ctx.state.time) { trafFrame = ctx.state.time; trafCache = Diff?.getVehicles?.() || []; } return trafCache; }; modCtx.shortcutAt = shortcutAt; ctx.debug.shortcuts = shortcuts; ctx.debug.bollards = bollards;
   try { Modes.init(ctx, Story, Police); Story?.setHooks?.({ daily: () => Modes.startDaily(), infinite: () => Modes.startInfinite() }); } catch (e) { console.error(e); }
   Diff?.init(modCtx); Police?.init(modCtx); Story?.init(modCtx);
   Object.assign(ctx.debug, { Story, Police, Diff, Cinema, closeCinema: () => Cinema?.isMenuOpen?.() ? Cinema.closeMenu() : null, modCtx, laneSpace, ff: m => { ctx.debug.ffLeft = m; } });
@@ -655,6 +684,15 @@ async function loadModules() {
 
 markQ(); setupPost();
 await loadModules().catch(e => console.error(e));
-loadModels().then(() => { buildPlayer(); }); // auto vere appena caricate
+loadModels().then(() => { buildPlayer(); prewarm(); }); // auto vere appena caricate
+// Precompila shader e carica su GPU tutte le auto del pool prima di guidare: niente scatti alla prima volante/auto
+function prewarm() {
+  try {
+    const meshes = [...(Diff?.prewarm?.(modCtx) || []), ...(Police?.prewarm?.() || [])];
+    meshes.forEach((m, i) => { m.position.set((i % 6 - 3) * 3, 0, player.z - 20 - (i / 6 | 0) * 6); laneSpace.add(m); });
+    renderer.compile(scene, camera); bend(); renderer.render(scene, camera); unbend();
+    meshes.forEach(m => laneSpace.remove(m));
+  } catch (e) { console.error(e); }
+}
 setEnvironment(Story?.getState?.().env || 'city'); buildPlayer(); player.speed = 10;
 loop();

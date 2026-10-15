@@ -46,14 +46,18 @@ function merge(parts) { // parts: [geometry, matrix, color]
   return out;
 }
 const M = (x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, ry = 0, rx = 0, rz = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
-const box = new THREE.BoxGeometry(1, 1, 1), cyl = new THREE.CylinderGeometry(.5, .5, 1, 8), cone = new THREE.ConeGeometry(.5, 1, 8), ico = new THREE.IcosahedronGeometry(.5, 1), sph = new THREE.SphereGeometry(.5, 8, 6);
+// forme più tonde: sfere/coni/cilindri con più segmenti e normali lisce (chiome morbide, tronchi rotondi)
+const box = new THREE.BoxGeometry(1, 1, 1), cyl = new THREE.CylinderGeometry(.5, .5, 1, 12), cone = new THREE.ConeGeometry(.5, 1, 14), ico = new THREE.SphereGeometry(.5, 12, 8), sph = new THREE.SphereGeometry(.5, 12, 8);
 
 const PROTOS = {
   // palazzo italiano: corpo, cornicione, finestre/persiane, tetto in coppi
   palazzo: () => { const p = [[box, M(0, .5, 0), 0xffffff]]; // corpo tinto da instanceColor
     p.push([box, M(0, 1.01, 0, 1.06, .04, 1.06), 0xd9d2c0]);
     for (let f = 0; f < 4; f++) for (let i = -1; i <= 1; i++) { p.push([box, M(i * .28, .18 + f * .22, .505, .12, .12, .01), 0x3c4a3a, 1]); p.push([box, M(.505, .18 + f * .22, i * .28, .01, .12, .12), 0x3c4a3a, 1]); p.push([box, M(-.505, .18 + f * .22, i * .28, .01, .12, .12), 0x3c4a3a, 1]); }
-    p.push([box, M(0, 1.06, 0, 1.08, .08, 1.08, 0, 0), 0xa0482c]); return merge(p); },
+    for (let f = 1; f < 4; f++) { p.push([box, M(0, .12 + f * .22, 0, 1.025, .012, 1.025), 0xe6dfcc]); // marcapiano
+      for (const i of [-1, 1]) { p.push([box, M(i * .28, .115 + f * .22, .53, .2, .012, .06), 0xd8d0bc]); p.push([box, M(i * .28, .135 + f * .22, .558, .2, .035, .006), 0x2c2c2c]); } } // balconi con ringhiera
+    p.push([box, M(0, .02, 0, 1.03, .04, 1.03), 0x8a8070]); // zoccolo
+    p.push([box, M(0, 1.06, 0, 1.08, .08, 1.08, 0, 0), 0xa0482c]); p.push([cyl, M(.3, 1.14, .2, .06, .14, .06), 0x8a3a24]); return merge(p); },
   lamp: () => merge([[cyl, M(0, 3.5, 0, .15, 7, .15), 0x2a2a2a], [box, M(.7, 7, 0, 1.5, .1, .1), 0x2a2a2a], [box, M(1.4, 6.85, 0, .5, .2, .3), 0xfff2c0, 1]]),
   rail: () => merge([[box, M(0, .65, 0, .08, .3, 4), 0xb8bcc0], [box, M(0, .35, -1.8, .12, .7, .12), 0x777], [box, M(0, .35, 1.8, .12, .7, .12), 0x777]]),
   cypress: () => merge([[cyl, M(0, .5, 0, .3, 1, .3), 0x4a3424], [cone, M(0, 3.5, 0, 1.6, 6.5, 1.6), 0xffffff]]),
@@ -135,7 +139,7 @@ const ENVS = {
 };
 
 function makeDunes(ctx) {
-  const g = new THREE.PlaneGeometry(1600, 1600, 120, 120); g.rotateX(-Math.PI / 2);
+  const g = new THREE.PlaneGeometry(1600, 1600, 80, 80); g.rotateX(-Math.PI / 2);
   const p = g.attributes.position, col = new Float32Array(p.count * 3);
   for (let i = 0; i < p.count; i++) { const x = p.getX(i), z = p.getZ(i);
     let h = 6 * Math.sin(x * .012 + Math.sin(z * .006) * 2) * Math.cos(z * .009) + 3 * Math.sin(x * .03 + z * .02) + 1.2 * Math.sin(x * .09 - z * .05);
@@ -174,7 +178,7 @@ export function update(dt, ctx) {
       if (it.z > pz + SPAN * .25) { it.z -= SPAN * 2 * .625 + SPAN * .75; moved = true; if (!set.spec.regular) seed(it, set.spec); } // passato dietro -> davanti
       else if (it.z < pz - SPAN * 1.75) { it.z += SPAN * 2; moved = true; }
     }
-    if (moved || ctx.road?.centerX) place(set, ctx);
+    if (moved || set.placedV !== ctx.road?.ver) { set.placedV = ctx.road?.ver; place(set, ctx); } // solo quando un oggetto viene riciclato o cambia la strada
   }
   for (const o of root.children) if (o.userData.follow) { o.position.x = cx(pz); o.position.z = pz; }
   if (dunes) { // dune: buco sotto la strada simulato abbassando i vertici vicino al centro strada
@@ -184,7 +188,7 @@ export function update(dt, ctx) {
 }
 let carvedZ = null;
 function carveDunes(ctx) {
-  if (carvedZ === dunes.position.z) return; carvedZ = dunes.position.z;
+  if (carvedZ === dunes.position.z && dunes.userData.v === ctx.road?.ver) return; carvedZ = dunes.position.z; dunes.userData.v = ctx.road?.ver;
   const p = dunes.geometry.attributes.position, cx = ctx.road?.centerX || (() => 0), hw = HW(ctx) + 6;
   if (!dunes.userData.base) dunes.userData.base = Float32Array.from({ length: p.count }, (_, i) => p.getY(i));
   const b = dunes.userData.base;

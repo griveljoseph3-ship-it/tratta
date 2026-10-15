@@ -56,6 +56,7 @@ export function update(dt) {
     else if (o.left <= 0) { C.hud.flash('✖ Obiettivo mancato', 1200); M.mult = Math.max(1, M.mult - 1); M.obj = null; M.nextObj = 6; }
   }
   const left = M.limit ? Math.max(0, M.limit - M.t) : null;
+  M.hudT = (M.hudT || 0) + dt; if (M.hudT < .1 && left !== 0) return; M.hudT = 0;
   const head = M.kind === 'daily' ? `📅 SFIDA DEL GIORNO · ⏱ ${Math.ceil(left)} s` : M.kind === 'infinite' ? '♾ INFINITA' : 'GUIDA LIBERA';
   hud.innerHTML = `<div style="font-size:12px;letter-spacing:2px;color:#ffb23e">${head}</div><div>${Math.round(M.score)} pt · x${M.mult}</div>` +
     (M.obj ? `<div style="font-size:13px;color:#9fe">${M.obj.t(M.obj.n)}${M.obj.time < 900 ? ' · ' + Math.ceil(M.obj.left) + ' s' : ''}${M.obj.id === 'near' ? ` (${M.obj.p}/${M.obj.n})` : ''}</div>` : '');

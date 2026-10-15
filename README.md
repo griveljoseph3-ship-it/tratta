@@ -26,3 +26,13 @@ Comandi: frecce o WASD, Spazio = nitro, Esc = capitoli. Su touch: pulsanti a sch
 - Scorciatoie sulla banchina dietro paletti: niente traffico, +nitro; le volanti che tagliano di lato si schiantano.
 - Polizia: manovra PIT (ti manda in testacoda).
 - Sfida del giorno (seme = data, classifica locale con nome, premio auto sopra 8000 punti) e Infinita / Guida libera con obiettivi casuali e moltiplicatore (modes.js).
+
+## v6 (fluidità)
+- Fisica a passo fisso 1/120 s (uguale a 60 e 120 Hz ProMotion), camera a molla smorzata, shake senza rumore casuale.
+- iPad: qualità Media di default, pixel ratio max 1.0 (Media) / 1.25 (Alta), ombre solo su Alta, render diretto senza post-processing.
+- Scenario ricalcolato solo quando un oggetto viene riciclato; strada ricostruita solo ogni 4 m; HUD a 10 Hz.
+- Pool di auto traffico/polizia + precompilazione shader: niente creazione di mesh durante la guida.
+- Auto traffico/polizia in un'unica mesh con geometria condivisa: draw call da ~155 a ~66.
+- Guida: molta più aderenza; derapata col freno a mano (pulsante DRIFT / Shift / H); testacoda solo esagerando col freno a mano.
+- Grafica: chiome e tronchi tondi, palazzi con balconi, marcapiani e zoccolo.
+- `node tests-perf.mjs URL 1 small` misura i tempi JS per frame con CPU rallentata 4x.
