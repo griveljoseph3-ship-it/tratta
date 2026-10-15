@@ -19,3 +19,10 @@ Comandi: frecce o WASD, Spazio = nitro, Esc = capitoli. Su touch: pulsanti a sch
 - Rallentatore + whoosh sui sorpassi al limite, hit-stop sugli urti forti, radio di Lola e Tano.
 - Storia: prologo (debito di Dario, trattoria), colpi di scena solo nei cap. 3, 5 e finale.
 - Prestazioni: pixel ratio max 1.5 su Alta, risoluzione adattiva, ombre più leggere.
+
+## v5
+- Prologo con la Trattoria Santoro di notte (insegna, vetrina, tavolini).
+- Città di notte: facciate scure, finestre accese a caso, insegne al neon, aloni dei lampioni, asfalto bagnato (env map notturna), cono dei fari. AO nei vertex color.
+- Scorciatoie sulla banchina dietro paletti: niente traffico, +nitro; le volanti che tagliano di lato si schiantano.
+- Polizia: manovra PIT (ti manda in testacoda).
+- Sfida del giorno (seme = data, classifica locale con nome, premio auto sopra 8000 punti) e Infinita / Guida libera con obiettivi casuali e moltiplicatore (modes.js).

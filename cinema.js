@@ -267,10 +267,10 @@ const SPK = {
 const toLines = (html, spk) => html.split(/<br\s*\/?>/i).map(strip).filter(Boolean).map((text, i) => ({ who: (spk && spk[i]) || 'nico', text }));
 // shot: {kind, dur, sub}
 const SHOTS = {
-  arrive: { dur: 4.2 }, police: { dur: 4.5 }, escape: { dur: 4.5 }, orbit: { dur: 99 }
+  arrive: { dur: 4.2 }, trattoria: { dur: 4.6 }, insegna: { dur: 3.8 }, police: { dur: 4.5 }, escape: { dur: 4.5 }, orbit: { dur: 99 }
 };
 const PLAN = {
-  intro: ['arrive', 'police', 'escape'],
+  intro: ['trattoria', 'insegna'],
   twist1: ['arrive'], twist2: ['police'], twist3: ['police'], twist4: ['escape'], twist5: ['arrive'], twist6: ['police', 'escape']
 };
 export function listCutscenes() { const a = ['intro']; CHAPTERS.forEach((_, i) => a.push('chapter' + (i + 1), 'twist' + (i + 1))); return a; }
@@ -284,7 +284,7 @@ function buildCutscene(id) {
   const lines = P0 ? P0.lines : kind === 'twist' ? (C0.outroLines || toLines(C0.outro, SPK.outro[ch])) : (C0.introLines || toLines(C0.intro, SPK.intro[ch]));
   const shots = kind === 'chapter' ? ['arrive'] : PLAN[kind === 'intro' ? 'intro' : 'twist' + (ch + 1)];
   const subs = { arrive: kind === 'twist' ? 'Più tardi…' : (P0 || C0).place || (C0.env === 'city' ? 'Napoli' : C0.env === 'jungle' ? 'Da qualche parte nella giungla' : 'Deserto, 45 gradi'),
-    police: 'Sirene. Tante sirene.', escape: '«VAI!»' };
+    police: 'Sirene. Tante sirene.', escape: '«VAI!»', trattoria: (P0 && P0.place) || 'Trattoria Santoro, Napoli', insegna: 'Tre anni dopo l\'incidente di Dario.' };
   const time = (P0 || C0).time || 'night';
   return { ch, kind, env: C0.env, time, title: P0 ? P0.title : C0.title, lines, shots, subs };
 }
@@ -307,9 +307,23 @@ export async function playCutscene(id, ctx) {
   // attori
   const hero = addCar(st.scene, S.ch >= 5 ? 'supercar' : S.env === 'city' ? 'berlina' : 'rally', S.ch >= 5 ? 0x111111 : 0xb3121f);
   const cops = [], sir = [];
+  // set della trattoria (solo prologo): facciata, vetrina calda, insegna al neon, tavolini fuori
+  let tratt = null;
+  if (S.kind === 'intro') {
+    tratt = new THREE.Group(); const wall = new THREE.Mesh(new THREE.BoxGeometry(14, 9, 6), new THREE.MeshStandardMaterial({ color: 0x6a4a3a, roughness: .9 })); wall.position.set(-13, 4.5, -2); tratt.add(wall);
+    const glass = new THREE.Mesh(new THREE.PlaneGeometry(5, 2.4), new THREE.MeshBasicMaterial({ color: 0xffb060 })); glass.position.set(-5.99, 1.9, -2); glass.rotation.y = Math.PI / 2; tratt.add(glass);
+    const win2 = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 1.6), new THREE.MeshBasicMaterial({ color: 0xffd28a })); win2.position.set(-5.99, 6, -4); win2.rotation.y = Math.PI / 2; tratt.add(win2);
+    const c = document.createElement('canvas'); c.width = 512; c.height = 128; const g = c.getContext('2d'); g.fillStyle = '#1a0e0a'; g.fillRect(0, 0, 512, 128); g.font = 'bold 64px Georgia,serif'; g.textAlign = 'center'; g.shadowColor = '#ff5a3a'; g.shadowBlur = 24; g.fillStyle = '#ffd0a0'; g.fillText('Trattoria Santoro', 256, 84);
+    const tx = new THREE.CanvasTexture(c); tx.colorSpace = THREE.SRGBColorSpace;
+    const sign = new THREE.Mesh(new THREE.PlaneGeometry(6, 1.5), new THREE.MeshBasicMaterial({ map: tx })); sign.position.set(-5.95, 3.9, -2); sign.rotation.y = Math.PI / 2; tratt.add(sign);
+    const warm = new THREE.PointLight(0xffa050, 40, 18); warm.position.set(-4, 2.5, -2); tratt.add(warm);
+    const tm = new THREE.MeshStandardMaterial({ color: 0xe8e0d0 });
+    for (const z of [-4.5, .5]) { const t = new THREE.Mesh(new THREE.CylinderGeometry(.5, .5, .06, 12), tm); t.position.set(-4.6, .8, z); const leg = new THREE.Mesh(new THREE.CylinderGeometry(.05, .05, .8), tm); leg.position.set(-4.6, .4, z); tratt.add(t, leg); }
+    st.scene.add(tratt);
+  }
   for (let i = 0; i < 3; i++) { const p = addCar(st.scene, 'police'); p.visible = false; cops.push(p); sir.push(sirenLights(p)); }
   let T = 0, shot = null, sT = 0;
-  const setShot = k => { shot = k; sT = 0; for (const p of cops) p.visible = k !== 'arrive'; };
+  const setShot = k => { shot = k; sT = 0; for (const p of cops) p.visible = !['arrive', 'trattoria', 'insegna', 'orbit'].includes(k) || (k === 'orbit' && S.kind !== 'intro' && S.kind !== 'chapter'); };
   st.tick.push(dt => {
     T += dt; sT += dt; const cam = st.camera; sir.forEach(f => f(T + 0.1));
     const spin = d => { hero.userData.spin && hero.userData.spin(d); };
@@ -321,6 +335,9 @@ export async function playCutscene(id, ctx) {
     else if (shot === 'escape') { const v = 8 + sT * 14; hero.position.set(1.8, 0, -sT * v * .5); spin(v * dt);
       cops.forEach((p, i) => { p.rotation.y = 0; p.position.set(i % 2 ? -1.8 : 1.8, 0, hero.position.z + 9 + i * 7); p.userData.spin && p.userData.spin(v * dt); });
       cam.position.set(hero.position.x - 2.6, .7, hero.position.z - 7); cam.lookAt(hero.position.x, .9, hero.position.z + 4); }
+    else if (shot === 'trattoria') { hero.position.set(-2.6, 0, 3); hero.rotation.y = Math.PI; cam.position.set(6 - sT * .5, 1.6, 12 - sT * .8); cam.lookAt(-5, 2.2, -1); }
+    else if (shot === 'insegna') { hero.position.set(-2.6, 0, 3); cam.position.set(-1.5, 2.8 + sT * .05, 4 - sT * .3); cam.lookAt(-6, 3.8, -2); }
+    else if (shot === 'orbit' && S.kind === 'intro') { const a = 1.1 + T * .05; cam.position.set(-5 + Math.sin(a) * 9, 2, -2 + Math.cos(a) * 9); cam.lookAt(-5, 2, -2); }
     else if (shot === 'orbit') { const a = T * .1; cam.position.set(hero.position.x + Math.sin(a) * 7, 1.5, hero.position.z + Math.cos(a) * 7); cam.lookAt(hero.position.x, .7, hero.position.z); }
     hero.userData.steer && hero.userData.steer(shot === 'escape' ? Math.sin(T * 2) * .1 : 0);
   });

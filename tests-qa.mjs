@@ -85,7 +85,7 @@ for (const env of ['city', 'jungle', 'desert']) for (const c of cars) {
 }
 for (const env of ['city', 'jungle', 'desert']) { await p.evaluate(e => tratta.debug.Story.startFreeRoam('rally', e), env); await p.evaluate(() => tratta.keys.ArrowUp = true); await sim(p, 6); await p.waitForTimeout(500); await p.screenshot({ path: `/workspace/qa-${env}.png` }); }
 // velocità massima e curve: 60 s di gas, nessuna uscita
-await p.evaluate(() => { tratta.debug.Story.startFreeRoam('berlina', 'city'); tratta.debug.noTraffic = true; tratta.debug.Police.setHeat(0); tratta.debug.Diff.reset(); tratta.player.speed = 0; tratta.keys.ArrowUp = true; }); await sim(p, 9.5); const t100 = await p.evaluate(() => tratta.player.speed * 3.6); ok('0-100 berlina ~8-12 s', t100 > 85 && t100 < 125, t100.toFixed(0) + ' km/h dopo 9.5 s'); await sim(p, 30);
+await p.evaluate(() => { tratta.debug.Story.startFreeRoam('berlina', 'city'); tratta.debug.noTraffic = true; tratta.debug.noPolice = true; tratta.debug.Police.setHeat(0); tratta.debug.Diff.reset(); tratta.player.speed = 0; tratta.keys.ArrowUp = true; }); await sim(p, 9.5); const t100 = await p.evaluate(() => tratta.player.speed * 3.6); ok('0-100 berlina ~8-12 s', t100 > 85 && t100 < 125, t100.toFixed(0) + ' km/h dopo 9.5 s'); await sim(p, 30);
 const top = await p.evaluate(() => ({ kmh: tratta.player.speed * 3.6, gear: tratta.player.gear, d: tratta.player.distance }));
 ok('Accelerazione realistica (berlina 30 s)', top.kmh > 140 && top.kmh < 215, JSON.stringify(top));
 await p.evaluate(() => tratta.keys.ArrowUp = false); await p.evaluate(() => tratta.keys.ArrowDown = true); await sim(p, 6); 

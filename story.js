@@ -298,12 +298,17 @@ export function openGarage(after) {
   btn(box, '← Indietro', typeof after === 'function' ? after : openMainMenu);
 }
 // sblocco extra: interceptor (unlock 8) = storia completata
+// premio sfida del giorno: sblocca la prossima auto ancora chiusa (null se tutte sbloccate)
+export function grantNextCar() { const c = CARS.find(x => !isUnlocked(x)); if (!c) return null; S.save.cars.push(c.id); persist(); return c; }
+export { openFreeRoamMenu as freeRoamMenu };
 function storyDoneUnlocks() { if (!S.save.cars.includes('interceptor')) S.save.cars.push('interceptor'); }
 
 function openFreeRoamMenu() {
   const box = menuBox('Guida libera', 'Nessuna missione. La polizia arriva solo se superi il limite o fai incidenti.');
   box.appendChild(el('div', 'margin:6px 0;font-size:14px', 'Auto: <b>' + carById(S.save.car).name + '</b>'));
   btn(box, '🚗 Cambia auto', () => openGarage(openFreeRoamMenu));
+  if (hooks.daily) btn(box, '📅 Sfida del giorno <small style="opacity:.6">— stesso percorso per tutti oggi, classifica</small>', () => { S.menu.style.display = 'none'; hooks.daily(); });
+  if (hooks.infinite) btn(box, '♾ Infinita <small style="opacity:.6">— obiettivi casuali, punteggio e moltiplicatore</small>', () => { S.menu.style.display = 'none'; hooks.infinite(); });
   Object.values(ENVS).forEach(e => btn(box, '▶ ' + e.name + ' <small style="opacity:.6">— ' + e.desc + ' Limite ' + e.speedLimitKmh + ' km/h</small>', () => { S.menu.style.display = 'none'; startFreeRoam(S.save.car, e.id); }));
   btn(box, '← Indietro', openMainMenu);
 }

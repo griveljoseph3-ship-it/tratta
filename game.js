@@ -10,6 +10,7 @@ import { SMAAPass } from 'three/addons/postprocessing/SMAAPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import * as RNG from './rng.js';
 import * as Audio from './audio.js';
+import * as Modes from './modes.js';
 
 const $ = id => document.getElementById(id);
 const LANES = 4, LW = 3.6, ROAD_W = LANES * LW;
@@ -281,7 +282,7 @@ function physOf(c) {
 function buildPlayer() {
   if (player.mesh) laneSpace.remove(player.mesh);
   const col = carDef.color ? new THREE.Color(carDef.color).getHex() : undefined;
-  player.mesh = new THREE.Group(); player.body = makeCar(carDef.type || 'berlina', { color: col }); player.mesh.add(player.body, headlight, hlTarget); laneSpace.add(player.mesh);
+  player.mesh = new THREE.Group(); player.body = makeCar(carDef.type || 'berlina', { color: col }); player.mesh.add(player.body, headlight, hlTarget, coneMesh); laneSpace.add(player.mesh);
   player.phys = physOf(carDef);
 }
 function setCar(c) { if (!c) return; carDef = typeof c === 'string' ? (CARS.find(x => x.id === c) || CARS[0]) : c; buildPlayer(); }
@@ -338,6 +339,8 @@ const RADIO = {
   crash: [['tano', 'Una volante in meno! Ah-ah!'], ['lola', 'Si sono fatti male da soli. Adoro.']],
   hurt: [['lola', 'La macchina non regge, Ruota. Attento!'], ['tano', 'Me la riporti intera, sì?']],
   spin: [['tano', 'Piano! Mica è un autoscontro!'], ['lola', 'Controsterza, Ruota, controsterza!']],
+  pit: [['lola', 'Ti hanno girato! Controsterza!'], ['tano', 'Bastardi, la manovra PIT!']],
+  shortcut: [['lola', 'Bella scorciatoia, Ruota.'], ['tano', 'Questa la conosceva solo Dario!']],
   escaped: [['lola', 'Seminati. Respira.'], ['tano', 'Puliti. Lo sapevo io.']],
 };
 let radioT = 0, radioCd = 0;
@@ -357,6 +360,7 @@ on('heatChange', d => { ui.setHeat(d.to); Story?.notify('policeHeat', { heat: d.
 on('busted', () => Story?.notify('busted'));
 on('nearMiss', d => { Audio.whoosh(); slowT = d?.combo > 2 ? .6 : .4; shake = Math.min(1, shake + .15); navigator.vibrate?.(20); if (d?.combo >= 2 || RNG.rand() < .5) radio('near'); });
 on('heatChange', d => { if (d.to > d.from) radio(d.to >= 5 ? 'heli' : 'heat'); });
+on('pit', d => { if (!player.spinRate && player.speed > 12) { player.spinRate = d.dir * (1.6 + RNG.rand()); ui.flash('Manovra PIT!', 1000); radio('pit', true); shake = Math.min(1, shake + .4); Audio.thump(.9); navigator.vibrate?.(80); } });
 on('spinStart', () => { shake = Math.min(1, shake + .2); if (RNG.rand() < .6) radio('spin'); });
 on('policeCrash', () => { Audio.thump(.8); radio('crash', true); shake = Math.min(1, shake + .3); });
 on('collision', d => { Audio.thump(Math.min(1, (d?.damage || 5) / 25)); if ((d?.damage || 0) > 15) { hitStop = .07; navigator.vibrate?.(60); } if (player.health < 35) radio('hurt'); });
@@ -384,7 +388,7 @@ on('missionFailed', () => { ctx.state.running = false; ctx.state.failed = true; 
 on('storyComplete', () => { ctx.state.running = false; });
 
 function resetRun() {
-  ctx.state.seed = RNG.reseed(ctx.debug.seed); randomizeRoad();
+  ctx.state.seed = RNG.reseed(ctx.debug.seed); randomizeRoad(); shortcuts.length = 0; nextSC = -300 - RNG.rand() * 200; prevX = road.laneX(1);
   buildPlayer(); Object.assign(player, { spin: 0, spinRate: 0, spinRecover: false, speed: 14, x: road.laneX(1), z: 0, h: 0, steer: 0, lane: 1, nitro: 1, distance: 0, maxHealth: 100, health: 100, gear: 2, shiftT: 0, drift: 0 });
   ctx.state.time = 0; ctx.state.running = true; shake = 0;
   Diff?.reset(modCtx); Police?.reset(); ui.setHeat(0);
@@ -447,7 +451,7 @@ function updatePlayer(dt) {
     player.x = Math.sign(player.x) * lim; player.h *= -.3; player.speed = Math.max(0, player.speed - (hit > 2 ? hit * .5 : 6 * dt));
     if (hit > 2) emit('damage', { amount: Math.min(12, hit * .6), source: 'guardrail' });
   }
-  if (Math.abs(player.x) > road.halfWidth) player.speed -= (ENV === 'city' ? 2 : 4) * dt; // banchina rallenta
+  if (Math.abs(player.x) > road.halfWidth && !(shortcutAt(player.z) && Math.abs(player.x) > SC_LINE)) player.speed -= (ENV === 'city' ? 2 : 4) * dt; // banchina rallenta
   player.z -= player.speed * Math.cos(player.h) * dt; player.distance += player.speed * dt;
   player.lane = THREE.MathUtils.clamp(Math.round(player.x / LW + (LANES - 1) / 2), 0, LANES - 1);
   // rollio e beccheggio del corpo
@@ -500,7 +504,7 @@ const clock = new THREE.Clock(); let fpsAcc = 0, fpsN = 0;
 function step(dt) {
   try { Story?.update(dt, modCtx); } catch (e) { console.error(e); }
   if (ctx.state.running && !ctx.state.paused && !ctx.state.cinema) {
-    ctx.state.time += dt; updatePlayer(dt);
+    ctx.state.time += dt; updatePlayer(dt); updateShortcuts(dt); Modes.update(dt);
     if (ctx.debug.ffLeft > 0) { const j = Math.min(150, ctx.debug.ffLeft); player.z -= j; player.distance += j; ctx.debug.ffLeft -= j; }
     for (const m of [ctx.debug.noTraffic ? null : Diff, ctx.debug.noPolice ? null : Police]) { try { m?.update(dt, modCtx); } catch (e) { console.error(e); } }
     if (ctx.debug.god) player.health = 100;
@@ -517,7 +521,7 @@ function loop() {
   if (ctx.state.running) updateHUD();
   try { Audio.update({ rpm: player.rpm, speed: ctx.state.running && !ctx.state.paused ? player.speed : 0, throttle: !!(keys.ArrowUp || keys.KeyW), drift: player.drift, siren: ctx.state.running && !ctx.state.cinema ? Police?.nearest?.(player.x) : null, muted: !!ctx.state.cinema || !ctx.state.running }); } catch (e) {}
   updateDust(dt);
-  if (player.mesh) { updateCamera(dt); updateScenery(player.z, dt); updateGlows(player.z); }
+  if (player.mesh) { updateCamera(dt); updateScenery(player.z, dt); updateGlows(player.z); updateNeon(player.z); }
   if (!(ctx.state.cinema && Cinema?.isMenuOpen?.())) { bend(); composer.render(dt); unbend(); }
   fpsAcc += dt; fpsN++; if (fpsAcc > 2) { ctx.state.fps = fpsN / fpsAcc; fpsAcc = fpsN = 0; adaptQuality(ctx.state.fps); }
 }
@@ -548,6 +552,48 @@ function updateGlows(pz) { if (!glows.visible) return; for (let i = 0; i < 40; i
 const nightSky = canvasTex(4, 256, (g, w, h) => { const r = g.createLinearGradient(0, 0, 0, h); r.addColorStop(0, '#02040a'); r.addColorStop(.55, '#0b1430'); r.addColorStop(.8, '#2a2340'); r.addColorStop(1, '#3a2a30'); g.fillStyle = r; g.fillRect(0, 0, w, h); });
 nightSky.wrapS = nightSky.wrapT = THREE.ClampToEdgeWrapping;
 
+// ---------- Scorciatoie: corsia stretta sulla banchina, separata da paletti. Entri solo dall'imbocco;
+// dentro niente traffico e la polizia che prova a seguirti di lato si schianta sui paletti. ----------
+const SC_LINE = road.halfWidth + .25, SC_LEN = 130;
+const shortcuts = []; let nextSC = -350;
+const bollardM = new THREE.MeshLambertMaterial({ color: 0xffc400 });
+const bollards = new THREE.InstancedMesh(new THREE.CylinderGeometry(.14, .16, 1, 6).translate(0, .5, 0), bollardM, 80); bollards.frustumCulled = false; bollards.count = 0; laneSpace.add(bollards);
+const arrowTex = canvasTex(128, 64, (g, w, h) => { g.fillStyle = '#111'; g.fillRect(0, 0, w, h); g.fillStyle = '#ffc400'; for (let i = 0; i < 3; i++) { g.beginPath(); g.moveTo(14 + i * 38, 10); g.lineTo(40 + i * 38, 32); g.lineTo(14 + i * 38, 54); g.lineTo(26 + i * 38, 54); g.lineTo(52 + i * 38, 32); g.lineTo(26 + i * 38, 10); g.fill(); } });
+const scSigns = [0, 1].map(() => { const m = new THREE.Mesh(new THREE.PlaneGeometry(1.8, .9), new THREE.MeshBasicMaterial({ map: arrowTex })); m.position.y = 1.6; m.visible = false; laneSpace.add(m); return m; });
+function shortcutAt(z) { for (const c of shortcuts) if (z <= c.z0 && z >= c.z0 - c.len) return { side: c.side, line: SC_LINE, inner: z < c.z0 - 5, c }; return null; }
+function updateShortcuts(dt) {
+  const pz = player.z; bollCd -= dt;
+  if (pz < nextSC + 260 && shortcuts.length < 2) { shortcuts.push({ z0: nextSC, len: SC_LEN, side: RNG.rand() < .5 ? -1 : 1, used: false, inside: false }); nextSC -= 420 + RNG.rand() * 380; }
+  for (let i = shortcuts.length - 1; i >= 0; i--) if (pz < shortcuts[i].z0 - shortcuts[i].len - 40) shortcuts.splice(i, 1);
+  let n = 0; scSigns.forEach(m => m.visible = false);
+  shortcuts.forEach((c, k) => { for (let z = c.z0 - 2; z > c.z0 - c.len && n < 80; z -= 4.2) { dummy.position.set(c.side * SC_LINE, 0, z); dummy.rotation.set(0, 0, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); bollards.setMatrixAt(n++, dummy.matrix); }
+    const sg = scSigns[k]; if (sg) { sg.visible = true; sg.position.set(c.side * (SC_LINE + 1.2), 1.6, c.z0 + 6); sg.rotation.y = 0; sg.scale.x = c.side; } });
+  bollards.count = n; bollards.instanceMatrix.needsUpdate = true;
+  // giocatore
+  const sc = shortcutAt(pz), inLane = Math.abs(player.x) > SC_LINE && Math.sign(player.x) === sc?.side;
+  if (sc) {
+    if (sc.inner && Math.sign(player.x) === sc.side && (Math.abs(prevX) - SC_LINE) * (Math.abs(player.x) - SC_LINE) < 0) { // attraversa i paletti di lato
+      player.x = prevX; player.h *= -.3; if (bollCd <= 0) { bollCd = .6; player.speed *= .85; emit('damage', { amount: 6, source: 'paletti' }); shake = Math.min(1, shake + .3); Audio.thump(.6); }
+    } else if (inLane && !sc.c.inside) { sc.c.inside = true; }
+  }
+  for (const c of shortcuts) if (c.inside && !c.used && pz < c.z0 - c.len) { c.used = true; player.nitro = Math.min(1, player.nitro + .5); ui.flash('Scorciatoia! +nitro', 1300); emit('shortcut', {}); radio('shortcut', true); }
+  prevX = player.x;
+}
+let prevX = 0, bollCd = 0;
+// insegne al neon (solo città di notte): 3 instanced mesh, un draw call ciascuna
+const NEON = ['PIZZA', 'BAR', 'HOTEL'].map((t, k) => { const col = ['#ff3b6b', '#3bf0ff', '#c77dff'][k];
+  const tx = canvasTex(256, 96, (g, w, h) => { g.fillStyle = '#0a0a10'; g.fillRect(0, 0, w, h); g.strokeStyle = col; g.lineWidth = 5; g.shadowColor = col; g.shadowBlur = 18; g.strokeRect(8, 8, w - 16, h - 16); g.font = 'bold 56px system-ui'; g.textAlign = 'center'; g.fillStyle = '#fff'; g.fillText(t, w / 2, 68); });
+  const im = new THREE.InstancedMesh(new THREE.PlaneGeometry(3.2, 1.2), new THREE.MeshBasicMaterial({ map: tx, fog: true }), 8); im.frustumCulled = false; im.visible = false; scene.add(im); return im; });
+function updateNeon(pz) { if (!NEON[0].visible) return; NEON.forEach((im, k) => { for (let i = 0; i < 8; i++) { const z = Math.floor(pz / 90) * 90 - i * 90 - k * 30 + 10, sd = (i + k) % 2 ? 1 : -1, c = cx(z), s = dcx(z);
+  dummy.position.set(c + sd * (TOTAL_W / 2 + 6), 5 + ((i * 7 + k * 3) % 4), z); dummy.rotation.set(0, Math.atan(s) + (sd > 0 ? -1 : 1) * 1.2, 0); dummy.scale.set(1, 1, 1); dummy.updateMatrix(); im.setMatrixAt(i, dummy.matrix); } im.instanceMatrix.needsUpdate = true; }); }
+// cono dei fari: mesh additiva, niente luce volumetrica
+const coneMesh = new THREE.Mesh(new THREE.ConeGeometry(4.5, 26, 16, 1, true).rotateX(Math.PI / 2).translate(0, .9, -14), new THREE.MeshBasicMaterial({ color: 0xfff0c8, transparent: true, opacity: .035, blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide }));
+coneMesh.visible = false;
+// env map notturna: scena minuscola con strisce calde -> riflessi sull'asfalto bagnato e sulle auto
+const nightEnvScene = new THREE.Scene(); nightEnvScene.background = new THREE.Color(0x05070d);
+for (let i = 0; i < 10; i++) { const m = new THREE.Mesh(new THREE.BoxGeometry(2, .5, 8), new THREE.MeshBasicMaterial({ color: i % 3 ? 0xffb060 : 0x60c0ff })); const a = i / 10 * Math.PI * 2; m.position.set(Math.cos(a) * 20, 6 + (i % 3) * 3, Math.sin(a) * 20); m.lookAt(0, 0, 0); nightEnvScene.add(m); }
+let nightEnv = null;
+
 // ---------- Ora del giorno (deve combaciare con le cutscene) ----------
 let TOD = "day"; var todReady = true;
 const headlight = new THREE.SpotLight(0xfff2d0, 0, 90, .55, .6, 1.2); headlight.position.set(0, 1, -1.5); const hlTarget = new THREE.Object3D(); hlTarget.position.set(0, 0, -30); headlight.target = hlTarget;
@@ -564,8 +610,12 @@ function setTimeOfDay(t) {
     o.color.set(o.userData.base.c); if (night) o.color.lerp(new THREE.Color(0x6f86c8), .6); else if (dusk) o.color.lerp(new THREE.Color(0xff9a5a), .45);
   }
   if (scene.fog) { scene.fog._base ??= scene.fog.color.getHex(); scene.fog.color.set(night ? 0x0b1020 : dusk ? 0x6a4a52 : scene.fog._base); }
-  if (envMap) envMap.dispose(); skyScene.add(sky); envMap = pmrem.fromScene(skyScene, 0.04).texture; scene.add(sky); scene.environment = night ? null : envMap;
+  if (envMap) envMap.dispose(); skyScene.add(sky); envMap = pmrem.fromScene(skyScene, 0.04).texture; scene.add(sky); scene.environment = envMap;
   scene.background = night ? nightSky : null; sky.visible = !night; glows.visible = night && ENV === 'city';
+  NEON.forEach(m => m.visible = night && ENV === 'city'); coneMesh.visible = night;
+  try { Env?.setNight?.(night ? 1 : dusk ? .35 : 0); } catch (e) {}
+  if (night) { nightEnv ||= pmrem.fromScene(nightEnvScene, 0.02).texture; scene.environment = nightEnv; }
+  roadMat.roughness = night ? .42 : .88; roadMat.metalness = night ? .15 : 0; roadMat.envMapIntensity = night ? 1.4 : 1; roadMat.needsUpdate = true;
   renderer.toneMappingExposure = night ? 1.15 : dusk ? .95 : .9;
   headlight.intensity = night ? 140 : dusk ? 40 : 0;
   ctx.state.timeOfDay = TOD;
@@ -597,7 +647,8 @@ async function loadModules() {
       onFree: () => Story.openFreeRoamMenu(), onGarage: () => Story.openGarage(), onSettings: () => { ctx.state.settingsFromMenu = true; ui.show('menu'); } }); };
     Story.setHooks({ mainMenu: ctx.openMainMenu, beforeChapter: i => cut('chapter' + (i + 1)), afterChapter: i => cut('twist' + (i + 1)) });
   }
-  modCtx.traffic = () => Diff?.getVehicles?.() || [];
+  modCtx.traffic = () => Diff?.getVehicles?.() || []; modCtx.shortcutAt = shortcutAt; ctx.debug.shortcuts = shortcuts; ctx.debug.bollards = bollards;
+  try { Modes.init(ctx, Story, Police); Story?.setHooks?.({ daily: () => Modes.startDaily(), infinite: () => Modes.startInfinite() }); } catch (e) { console.error(e); }
   Diff?.init(modCtx); Police?.init(modCtx); Story?.init(modCtx);
   Object.assign(ctx.debug, { Story, Police, Diff, Cinema, closeCinema: () => Cinema?.isMenuOpen?.() ? Cinema.closeMenu() : null, modCtx, laneSpace, ff: m => { ctx.debug.ffLeft = m; } });
 }

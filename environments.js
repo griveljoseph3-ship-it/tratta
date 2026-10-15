@@ -37,7 +37,12 @@ function merge(parts) { // parts: [geometry, matrix, color]
   let total = 0; geos.forEach(g => total += g.attributes.position.count);
   const out = new THREE.BufferGeometry(); const P = new Float32Array(total * 3), N = new Float32Array(total * 3), C = new Float32Array(total * 3); let o = 0;
   for (const g of geos) { P.set(g.attributes.position.array, o * 3); N.set(g.attributes.normal.array, o * 3); C.set(g.attributes.color.array, o * 3); o += g.attributes.position.count; }
-  out.setAttribute('position', new THREE.BufferAttribute(P, 3)); out.setAttribute('normal', new THREE.BufferAttribute(N, 3)); out.setAttribute('color', new THREE.BufferAttribute(C, 3));
+  // AO in vertex color: la base è più scura (contatto col terreno), la cima più chiara — costo zero a runtime
+  let y0 = Infinity, y1 = -Infinity; for (let i = 1; i < P.length; i += 3) { y0 = Math.min(y0, P[i]); y1 = Math.max(y1, P[i]); }
+  const G = new Float32Array(total); let gi = 0;
+  geos.forEach((g, k) => { const lit = parts[k][3] ? (Math.random() < .65 ? 1 : 0) : 0; G.fill(lit, gi, gi + g.attributes.position.count); gi += g.attributes.position.count; });
+  for (let i = 0; i < total; i++) { const t = (P[i * 3 + 1] - y0) / Math.max(1e-3, y1 - y0); const ao = .58 + .42 * Math.pow(Math.min(1, t * 1.6), .7) + Math.max(0, N[i * 3 + 1]) * .06; C[i * 3] *= ao; C[i * 3 + 1] *= ao; C[i * 3 + 2] *= ao; }
+  out.setAttribute('position', new THREE.BufferAttribute(P, 3)); out.setAttribute('normal', new THREE.BufferAttribute(N, 3)); out.setAttribute('color', new THREE.BufferAttribute(C, 3)); out.setAttribute('glow', new THREE.BufferAttribute(G, 1));
   return out;
 }
 const M = (x = 0, y = 0, z = 0, sx = 1, sy = 1, sz = 1, ry = 0, rx = 0, rz = 0) => new THREE.Matrix4().compose(new THREE.Vector3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(rx, ry, rz)), new THREE.Vector3(sx, sy, sz));
@@ -47,9 +52,9 @@ const PROTOS = {
   // palazzo italiano: corpo, cornicione, finestre/persiane, tetto in coppi
   palazzo: () => { const p = [[box, M(0, .5, 0), 0xffffff]]; // corpo tinto da instanceColor
     p.push([box, M(0, 1.01, 0, 1.06, .04, 1.06), 0xd9d2c0]);
-    for (let f = 0; f < 4; f++) for (let i = -1; i <= 1; i++) { p.push([box, M(i * .28, .18 + f * .22, .505, .12, .12, .01), 0x3c4a3a]); p.push([box, M(.505, .18 + f * .22, i * .28, .01, .12, .12), 0x3c4a3a]); p.push([box, M(-.505, .18 + f * .22, i * .28, .01, .12, .12), 0x3c4a3a]); }
+    for (let f = 0; f < 4; f++) for (let i = -1; i <= 1; i++) { p.push([box, M(i * .28, .18 + f * .22, .505, .12, .12, .01), 0x3c4a3a, 1]); p.push([box, M(.505, .18 + f * .22, i * .28, .01, .12, .12), 0x3c4a3a, 1]); p.push([box, M(-.505, .18 + f * .22, i * .28, .01, .12, .12), 0x3c4a3a, 1]); }
     p.push([box, M(0, 1.06, 0, 1.08, .08, 1.08, 0, 0), 0xa0482c]); return merge(p); },
-  lamp: () => merge([[cyl, M(0, 3.5, 0, .15, 7, .15), 0x2a2a2a], [box, M(.7, 7, 0, 1.5, .1, .1), 0x2a2a2a], [box, M(1.4, 6.85, 0, .5, .2, .3), 0xfff2c0]]),
+  lamp: () => merge([[cyl, M(0, 3.5, 0, .15, 7, .15), 0x2a2a2a], [box, M(.7, 7, 0, 1.5, .1, .1), 0x2a2a2a], [box, M(1.4, 6.85, 0, .5, .2, .3), 0xfff2c0, 1]]),
   rail: () => merge([[box, M(0, .65, 0, .08, .3, 4), 0xb8bcc0], [box, M(0, .35, -1.8, .12, .7, .12), 0x777], [box, M(0, .35, 1.8, .12, .7, .12), 0x777]]),
   cypress: () => merge([[cyl, M(0, .5, 0, .3, 1, .3), 0x4a3424], [cone, M(0, 3.5, 0, 1.6, 6.5, 1.6), 0xffffff]]),
   tree: () => merge([[cyl, M(0, 2, 0, .5, 4, .5), 0x4a3424], [ico, M(0, 5, 0, 4.5, 3.8, 4.5), 0xffffff], [ico, M(1.2, 6, .6, 3, 2.6, 3), 0xffffff], [ico, M(-1, 6.2, -.8, 2.8, 2.4, 2.8), 0xffffff]]),
@@ -64,6 +69,16 @@ const PROTOS = {
 const protoCache = {};
 const proto = k => (protoCache[k] ||= PROTOS[k]());
 const MAT = new THREE.MeshLambertMaterial({ vertexColors: true }); // luce semplice, economica su iPad
+// Notte: finestre e lampade si accendono (attributo 'glow'), le facciate si scuriscono. Un solo uniform.
+const NIGHT = { value: 0 };
+MAT.onBeforeCompile = sh => {
+  sh.uniforms.uNight = NIGHT;
+  sh.vertexShader = 'attribute float glow;\nvarying float vGlow;\n' + sh.vertexShader.replace('#include <begin_vertex>', '#include <begin_vertex>\n vec4 gwp = modelMatrix * instanceMatrix * vec4(transformed, 1.0); vGlow = glow * step(.42, fract(sin(dot(floor(gwp.xyz * .8), vec3(12.9898, 78.233, 37.719))) * 43758.5453));');
+  sh.fragmentShader = 'uniform float uNight;\nvarying float vGlow;\n' + sh.fragmentShader
+    .replace('#include <color_fragment>', '#include <color_fragment>\n diffuseColor.rgb *= mix(1.0, 0.42, uNight);')
+    .replace('#include <emissivemap_fragment>', '#include <emissivemap_fragment>\n totalEmissiveRadiance += vGlow * uNight * vec3(1.0, 0.68, 0.32) * 0.95;');
+};
+export function setNight(v) { NIGHT.value = v; }
 
 // spec: { proto, count, side: [minOff,maxOff], scale:[min,max] | fn, colors:[...], sy?:[min,max], y? }
 function addSet(spec, ctx) {
@@ -183,4 +198,4 @@ function dispose(ctx) {
   root = null; sets = []; dunes = null; carvedZ = null;
 }
 export function getEnvironment() { return current; }
-export default { setEnvironment, update, getEnvironment };
+export default { setEnvironment, update, getEnvironment, setNight };

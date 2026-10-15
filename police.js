@@ -193,7 +193,7 @@ function assignRoles(L, px) {
   behind.forEach((u, i) => {
     if (u.role === 'overtake' && u.z < 10) return; // sta già sorpassando per mettersi davanti
     if (i === 0) u.role = 'ram';
-    else if (i === 1) u.role = leftRoom > rightRoom ? 'flankL' : 'flankR';
+    else if (i === 1) u.role = heat >= 2 && u.skill > .85 ? 'pit' : leftRoom > rightRoom ? 'flankL' : 'flankR';
     else if (i === 2) u.role = leftRoom > rightRoom ? 'flankR' : 'flankL';
     else u.role = u.skill > .9 ? 'overtake' : 'chase';
   });
@@ -282,7 +282,7 @@ export function update(dt, ctx) {
   let close = 0;
 
   roleT -= dt; if (roleT <= 0) { assignRoles(L, px); roleT = .5; }
-  const pz = p.z || 0, xMin = L[0] - 1.2, xMax = L[L.length - 1] + 1.2;
+  const pz = p.z || 0, xMax = (ctx.road?.halfWidth ?? 7.2) + 1.4, xMin = -xMax;
   units.forEach((u, i) => {
     const ud = u.mesh.userData;
     ud.r.material.emissiveIntensity = flash ? 3 : 0.2; ud.b.material.emissiveIntensity = flash ? 0.2 : 3;
@@ -295,10 +295,14 @@ export function update(dt, ctx) {
       if (u.think <= 0) { // decide un nuovo piano ogni 0.3–0.8 s
         u.think = .3 + rand() * .5 / u.skill;
         const tPred = Math.max(.3, Math.min(2.5, u.role === 'block' ? u.z / Math.max(4, pSpeed - u.speed) : .8));
-        const pred = Math.max(L[0], Math.min(L[L.length - 1], u.estX + u.estV * tPred * cfg.aggr));
+        const pred = Math.max(xMin, Math.min(xMax, u.estX + u.estV * tPred * cfg.aggr));
         switch (u.role) {
           case 'block': { const bl = L[u.blockLane ?? laneIndex(L, pred)]; u.tx = u.z < 45 ? pred * .6 + bl * .4 : bl; u.tz = 0; break; }
           case 'ram': u.tx = pred; u.tz = -2; break;
+          case 'pit': { // manovra PIT: si affianca al posteriore e spinge il muso contro la tua coda
+            const sd = u.pitSide || (u.pitSide = pred > 0 ? -1 : 1); u.tz = -2.6;
+            if (Math.abs(u.z + 2.6) < 1.4 && Math.abs(u.x - (pred + sd * 2.1)) < .7 && !u.pitT) { u.pitT = .55; }
+            u.tx = u.pitT ? pred : pred + sd * 2.1; break; }
           case 'flankL': u.tx = Math.max(xMin, pred - 2.4); u.tz = .5; break;
           case 'flankR': u.tx = Math.min(xMax, pred + 2.4); u.tz = .5; break;
           case 'overtake': { const sideL = pred - L[0] > L[L.length - 1] - pred; u.tx = sideL ? L[0] : L[L.length - 1]; u.tz = 30; if (u.z > 22) u.role = 'block'; break; }
@@ -321,7 +325,8 @@ export function update(dt, ctx) {
       // laterale: accelerazione e velocità laterale limitate (fisica, non copia)
       const tn = trafficNear(ctx, u, pz);
       let tx = u.tx + tn.dodge * 3;
-      const maxVx = Math.min(2.5 + 3.5 * u.skill * cfg.aggr, .2 * Math.max(u.speed, 6));
+      if (u.pitT) { u.pitT = Math.max(0, u.pitT - dt); if (!u.pitT) { u.role = 'chase'; u.pitSide = 0; } }
+      const maxVx = u.pitT ? 6.5 : Math.min(2.5 + 3.5 * u.skill * cfg.aggr, .2 * Math.max(u.speed, 6));
       const wantVx = Math.max(-maxVx, Math.min(maxVx, (tx - u.x) * 1.6));
       u.vx += Math.sign(wantVx - u.vx) * Math.min(Math.abs(wantVx - u.vx), 7 * dt);
       // separazione tra unità
@@ -329,7 +334,10 @@ export function update(dt, ctx) {
         // tagli aggressivi che a volte falliscono: due volanti che si toccano forte si schiantano
         if (Math.abs(o.z - u.z) < 3.8 && Math.abs(o.x - u.x) < 1.6 && Math.abs(u.vx - o.vx) > 2.6) { u.alive = o.alive = false; emit(ctx, 'policeCrash', { unit: u }); }
         else u.vx += Math.sign(u.x - o.x || 1) * dt * 6; } });
-      u.x += u.vx * dt;
+      const ox = u.x; u.x += u.vx * dt;
+      // scorciatoie: la barriera di paletti non perdona chi la attraversa di lato
+      const sc = ctx.shortcutAt?.(pz - u.z);
+      if (sc && sc.inner && Math.sign(ox) === sc.side && (Math.abs(ox) - sc.line) * (Math.abs(u.x) - sc.line) < 0 && Math.sign(u.x) === sc.side) { u.alive = false; emit(ctx, 'policeCrash', { unit: u, why: 'paletti' }); }
       if (u.x < xMin || u.x > xMax) { u.x = Math.max(xMin, Math.min(xMax, u.x)); u.vx *= -.2; }
       u.mesh.rotation.y = -Math.atan2(u.vx, Math.max(u.speed, 5)); // orientata dalla SUA velocità
       if (tn.hit && u.speed > 8) { u.alive = false; emit(ctx, 'policeCrash', { unit: u }); } // si schianta nel traffico
@@ -337,6 +345,7 @@ export function update(dt, ctx) {
       u.hitCd -= dt;
       if (Math.abs(u.z) < 4.2 && Math.abs(u.x - px) < 2) {
         close += 1.5;
+        if (u.hitCd <= 0 && u.pitT && u.z < -.8) { u.hitCd = 1.2; u.pitT = 0; emit(ctx, 'pit', { dir: Math.sign(px - u.x) || 1, unit: u }); }
         if (u.hitCd <= 0) {
           u.hitCd = .7; const rel = Math.abs(u.speed - pSpeed) + Math.abs(u.vx) * 2;
           emit(ctx, 'damage', { amount: Math.min(14, 2 + rel * .5) * (.6 + heat * .15), source: 'police' });
